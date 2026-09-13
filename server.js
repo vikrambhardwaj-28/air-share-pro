@@ -66,7 +66,7 @@ app.post('/upload', upload.array('files'), (req, res) => {
             return res.status(400).json({ success: false, message: "No files selected." });
         }
 
-        const mode = req.body.mode || 'air'; // 'air', 'sound', or 'gravity'
+        const mode = req.body.mode || 'air';
         
         let pin;
         do {
@@ -147,16 +147,14 @@ app.get('/download/:pin/:fileIndex', (req, res) => {
         return res.status(404).send("Physical file was already purged.");
     }
 
-    // If downloading the last file in the bundle, increment download batch count
     if (fileIndex == session.files.length - 1) {
         session.downloadCount += 1;
         console.log(`[DOWNLOAD COMPLETED] PIN: ${pin} | Usage: ${session.downloadCount}/${session.maxDownloads}`);
 
-        // Limit reached: Purge immediately
         if (session.downloadCount >= session.maxDownloads) {
             setTimeout(() => {
                 purgeVault(pin);
-            }, 1500); // 1.5s grace time to finish the last stream
+            }, 1500);
         }
     }
 

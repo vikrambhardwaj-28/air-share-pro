@@ -184,7 +184,7 @@
         .card-title { font-size: 1.08rem; font-weight: 700; }
         .card-desc { font-size: 0.84rem; color: var(--text-secondary); margin-bottom: 22px; line-height: 1.6; }
 
-        /* DROP ZONE WITH DRAG-ACTIVE STYLES */
+        /* DROP ZONE */
         .drop-zone {
             border: 1.5px dashed var(--border-strong); border-radius: var(--radius-md); padding: 26px 20px;
             text-align: center; cursor: pointer; background: var(--input-bg); margin-bottom: 16px;
@@ -205,6 +205,12 @@
         .file-item {
             background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
             padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-family: 'JetBrains Mono', monospace;
+        }
+        .file-item i.remove-btn {
+            color: var(--danger); cursor: pointer; padding: 4px 6px; border-radius: 4px; transition: background 0.2s;
+        }
+        .file-item i.remove-btn:hover {
+            background: rgba(239, 68, 68, 0.15);
         }
 
         .btn {
@@ -406,9 +412,9 @@
             <div class="card">
                 <div class="card-title-row">
                     <div class="card-icon-chip"><i class="fa-solid fa-mobile-screen-button"></i></div>
-                    <div class="card-title">Kinetic Drop (Drag-and-Drop Support)</div>
+                    <div class="card-title">Kinetic Drop (Top-Touch / Stack-to-Share)</div>
                 </div>
-                <p class="card-desc">Drag files here, then bring phone flat to a table (Pitch ~0°, Roll ~0°) to pour files. Expires in 1 minute.</p>
+                <p class="card-desc">Drag files here, then touch phone tops together or stack flat to share. Expires in 1 minute.</p>
 
                 <div class="drop-zone" id="grvDropZone" tabindex="0" onclick="document.getElementById('grvFile').click()">
                     <i class="fa-solid fa-compass main-icon"></i>
@@ -418,7 +424,7 @@
                 <div id="grvList" class="file-list"></div>
 
                 <div class="tilt-level"><div id="tiltBubble"></div></div>
-                <div class="gauge-box" id="tiltAngleDisplay">Sensor Standby. Arm files &amp; place flat to drop.</div>
+                <div class="gauge-box" id="tiltAngleDisplay">Sensor Standby. Arm files &amp; touch tops or stack flat.</div>
                 <button class="btn" onclick="enableSensors()"><i class="fa-solid fa-microchip"></i> Enable Sensor / Drop Now</button>
             </div>
 
@@ -462,7 +468,7 @@
                 <ul>
                     <li>AirShare: Auto-purges after 3rd Download</li>
                     <li>SoundWave: 1 Min Auto-Destruct</li>
-                    <li>GravityDrop: Flat Position Sensor Drop</li>
+                    <li>GravityDrop: Flat / Top-Touch Drop</li>
                 </ul>
             </div>
             <div class="footer-col">
@@ -546,7 +552,7 @@
         }
 
         // ==========================================
-        // 1. AIRSHARE (MULTIPLE FILES & INSTANT DOWNLOAD)
+        // 1. AIRSHARE (MULTIPLE FILES & REMOVE SUPPORT)
         // ==========================================
         let selectedFiles = [];
         let countdownTimer;
@@ -566,7 +572,12 @@
             const list = document.getElementById('fileList');
             list.innerHTML = '';
             selectedFiles.forEach((f, idx) => {
-                list.innerHTML += `<div class="file-item"><span><i class="fa-regular fa-file" style="color:var(--accent-cyan); margin-right:8px;"></i>${f.name}</span><i class="fa-solid fa-xmark" style="color:var(--danger);cursor:pointer;" onclick="selectedFiles.splice(${idx},1);renderAirList();"></i></div>`;
+                list.innerHTML += `
+                    <div class="file-item">
+                        <span><i class="fa-regular fa-file" style="color:var(--accent-cyan); margin-right:8px;"></i>${f.name}</span>
+                        <i class="fa-solid fa-xmark remove-btn" title="Remove file" onclick="selectedFiles.splice(${idx},1);renderAirList();"></i>
+                    </div>
+                `;
             });
         }
 
@@ -685,7 +696,6 @@
         }
 
         window.onload = function() {
-            // Initialize Drag and Drop on all zones
             setupDragAndDrop('airDropZone', addAirFiles);
             setupDragAndDrop('sndDropZone', soundFilesSelect);
             setupDragAndDrop('grvDropZone', gravFilesSelect);
@@ -698,7 +708,7 @@
         };
 
         // ==========================================
-        // 2. SOUNDWAVE (1 MIN AUTO-EXPIRE & DYNAMIC FREQUENCY)
+        // 2. SOUNDWAVE (WITH REMOVE SUPPORT)
         // ==========================================
         let sndFiles = [];
         let isListening = false;
@@ -706,10 +716,19 @@
 
         function soundFilesSelect(filesList) {
             sndFiles = [...sndFiles, ...Array.from(filesList)];
+            renderSoundList();
+        }
+
+        function renderSoundList() {
             const list = document.getElementById('sndList');
             list.innerHTML = '';
-            sndFiles.forEach(f => {
-                list.innerHTML += `<div class="file-item"><span>${f.name}</span></div>`;
+            sndFiles.forEach((f, idx) => {
+                list.innerHTML += `
+                    <div class="file-item">
+                        <span><i class="fa-regular fa-file" style="color:var(--accent-purple); margin-right:8px;"></i>${f.name}</span>
+                        <i class="fa-solid fa-xmark remove-btn" title="Remove file" onclick="sndFiles.splice(${idx},1);renderSoundList();"></i>
+                    </div>
+                `;
             });
         }
 
@@ -776,7 +795,7 @@
             document.getElementById('listenBtn').innerHTML = `<i class="fa-solid fa-circle-stop"></i> Stop listening`;
             document.getElementById('listenBtn').style.background = 'var(--danger)';
             animateWave('rxCanvas', '#8b5cf6');
-            document.getElementById('rxStatus').innerText = `> Microphone listening for ultrasonic tone burst...`;
+            document.getElementById('rxStatus').innerText = `> Microphone listening for tone burst...`;
 
             if (socket) {
                 socket.off('receive_sound_token');
@@ -838,18 +857,29 @@
         }
 
         // ==========================================
-        // 3. GRAVITYDROP (MULTIPLE FILES & FLAT DROP SENSOR)
+        // 3. GRAVITYDROP (WITH REMOVE SUPPORT)
         // ==========================================
         let grvFiles = [];
         let isDropped = false;
+        let lastMotionPeak = 0;
 
         function gravFilesSelect(filesList) {
             grvFiles = [...grvFiles, ...Array.from(filesList)];
+            renderGravityList();
+        }
+
+        function renderGravityList() {
             const list = document.getElementById('grvList');
             list.innerHTML = '';
-            grvFiles.forEach(f => {
-                list.innerHTML += `<div class="file-item"><span>${f.name}</span></div>`;
+            grvFiles.forEach((f, idx) => {
+                list.innerHTML += `
+                    <div class="file-item">
+                        <span><i class="fa-regular fa-file" style="color:var(--accent-rose); margin-right:8px;"></i>${f.name}</span>
+                        <i class="fa-solid fa-xmark remove-btn" title="Remove file" onclick="grvFiles.splice(${idx},1);renderGravityList();"></i>
+                    </div>
+                `;
             });
+            document.getElementById('tiltAngleDisplay').innerText = `${grvFiles.length} file(s) armed! Touch phone tops or stack together.`;
         }
 
         function triggerGravityDrop() {
@@ -857,8 +887,9 @@
             isDropped = true;
             playChime(1200);
 
-            document.getElementById('dzTilt').classList.add('drop-fly');
-            document.getElementById('tiltAngleDisplay').innerText = `Horizontal Flat Position Reached! Dispatched!`;
+            const dz = document.getElementById('dzTilt');
+            if (dz) dz.classList.add('drop-fly');
+            document.getElementById('tiltAngleDisplay').innerText = `⚡ Contact Confirmed! Transferring payload...`;
 
             const formData = new FormData();
             grvFiles.forEach(f => formData.append('files', f));
@@ -876,10 +907,12 @@
                 });
 
             setTimeout(() => {
-                document.getElementById('dzTilt').classList.remove('drop-fly');
+                if (dz) dz.classList.remove('drop-fly');
                 isDropped = false;
+                grvFiles = [];
+                renderGravityList();
                 document.getElementById('tiltAngleDisplay').innerText = `Payload dropped. Auto-deletes in 60s.`;
-            }, 1500);
+            }, 1800);
         }
 
         function enableSensors() {
@@ -891,26 +924,55 @@
 
             if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(res => {
-                    if (res === 'granted') listenPosition();
+                    if (res === 'granted') initTouchAndStackListeners();
                 });
             } else {
-                listenPosition();
+                initTouchAndStackListeners();
             }
         }
 
-        function listenPosition() {
+        function initTouchAndStackListeners() {
+            document.getElementById('tiltAngleDisplay').innerText = "Sensors Online: Touch phone tops or stack together!";
+
+            // 1. Proximity Sensor API
+            if ('ProximitySensor' in window) {
+                try {
+                    const prox = new ProximitySensor();
+                    prox.addEventListener('reading', () => {
+                        if (prox.distance === 0 && grvFiles.length && !isDropped) {
+                            triggerGravityDrop();
+                        }
+                    });
+                    prox.start();
+                } catch (e) {}
+            }
+
+            // 2. Physical Tap/Bump Shock Detection
+            window.addEventListener('devicemotion', e => {
+                const acc = e.accelerationIncludingGravity;
+                if (!acc) return;
+                const totalForce = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+                const now = Date.now();
+
+                if (totalForce > 18 && (now - lastMotionPeak > 800)) {
+                    lastMotionPeak = now;
+                    if (grvFiles.length && !isDropped) {
+                        triggerGravityDrop();
+                    }
+                }
+            }, true);
+
+            // 3. Flat Stacking Detection
             window.addEventListener('deviceorientation', e => {
                 const pitch = Math.round(e.beta || 0);
                 const roll = Math.round(e.gamma || 0);
-
-                document.getElementById('tiltAngleDisplay').innerText = `Pitch: ${pitch}° | Roll: ${roll}° (Bring flat to 0° to drop)`;
 
                 const bubble = document.getElementById('tiltBubble');
                 if (bubble) {
                     bubble.style.transform = `translate(${Math.max(-20, Math.min(20, roll))}px, ${Math.max(-20, Math.min(20, pitch))}px)`;
                 }
 
-                if (Math.abs(pitch) < 15 && Math.abs(roll) < 15 && !isDropped && grvFiles.length) {
+                if (Math.abs(pitch) < 12 && Math.abs(roll) < 12 && !isDropped && grvFiles.length) {
                     triggerGravityDrop();
                 }
             }, true);
@@ -918,20 +980,25 @@
 
         function openDeck() {
             const status = document.getElementById('recvStatus');
-            status.innerText = "Connected — Waiting for Flat Drop...";
+            status.innerText = "Deck Online — Waiting for phone top-touch or stack drop...";
             status.style.color = "var(--success)";
 
             if (socket) {
                 socket.off('receive_gravity_file');
                 socket.on('receive_gravity_file', incoming => {
                     playChime(1400);
-                    status.innerText = `Caught ${incoming.files.length} file(s)! Downloading...`;
+                    status.innerText = `⚡ Caught ${incoming.files.length} file(s)! Downloading...`;
                     const dlBox = document.getElementById('gravityDownloads');
                     dlBox.innerHTML = '';
 
                     incoming.files.forEach((f, idx) => {
                         const downloadUrl = `/download/${incoming.pin}/${f.index}`;
-                        dlBox.innerHTML += `<div class="retrieved-item"><span>${f.originalname}</span><a href="${downloadUrl}" download="${f.originalname}"><i class="fa-solid fa-download"></i> Save</a></div>`;
+                        dlBox.innerHTML += `
+                            <div class="retrieved-item" style="border: 1px solid var(--accent-rose); box-shadow: 0 0 15px rgba(244, 63, 94, 0.25);">
+                                <span><i class="fa-solid fa-bolt" style="color:var(--accent-rose); margin-right:8px;"></i>${f.originalname}</span>
+                                <a href="${downloadUrl}" download="${f.originalname}"><i class="fa-solid fa-download"></i> Save</a>
+                            </div>
+                        `;
 
                         setTimeout(() => {
                             const a = document.createElement('a');
