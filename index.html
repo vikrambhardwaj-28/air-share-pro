@@ -857,11 +857,11 @@
         }
 
         // ==========================================
-        // 3. GRAVITYDROP (WITH REMOVE SUPPORT)
+        // 3. GRAVITYDROP (MULTI-SENSITIVE BUMP & FLAT ENGINE)
         // ==========================================
         let grvFiles = [];
         let isDropped = false;
-        let lastMotionPeak = 0;
+        let lastPeakTime = 0;
 
         function gravFilesSelect(filesList) {
             grvFiles = [...grvFiles, ...Array.from(filesList)];
@@ -879,7 +879,10 @@
                     </div>
                 `;
             });
-            document.getElementById('tiltAngleDisplay').innerText = `${grvFiles.length} file(s) armed! Touch phone tops or stack together.`;
+            const statusBox = document.getElementById('tiltAngleDisplay');
+            if (statusBox) {
+                statusBox.innerText = `${grvFiles.length} file(s) armed! Touch tops, tap, or lay flat.`;
+            }
         }
 
         function triggerGravityDrop() {
@@ -889,7 +892,9 @@
 
             const dz = document.getElementById('dzTilt');
             if (dz) dz.classList.add('drop-fly');
-            document.getElementById('tiltAngleDisplay').innerText = `⚡ Contact Confirmed! Transferring payload...`;
+            
+            const statusBox = document.getElementById('tiltAngleDisplay');
+            if (statusBox) statusBox.innerText = `⚡ Contact Confirmed! Transferring...`;
 
             const formData = new FormData();
             grvFiles.forEach(f => formData.append('files', f));
@@ -903,7 +908,11 @@
                             pin: data.pin,
                             files: data.files
                         });
+                        if (statusBox) statusBox.innerText = `✅ Dispatched! Auto-deletes in 60s.`;
                     }
+                })
+                .catch(err => {
+                    if (statusBox) statusBox.innerText = `Upload Error: ${err.message}`;
                 });
 
             setTimeout(() => {
@@ -911,59 +920,52 @@
                 isDropped = false;
                 grvFiles = [];
                 renderGravityList();
-                document.getElementById('tiltAngleDisplay').innerText = `Payload dropped. Auto-deletes in 60s.`;
             }, 1800);
         }
 
         function enableSensors() {
-            if (!window.DeviceOrientationEvent || (window.orientation === undefined && !navigator.userAgent.includes("Mobile"))) {
-                if (!grvFiles.length) return alert("Select or drop files first!");
-                triggerGravityDrop();
-                return;
-            }
+            if (!grvFiles.length) return alert("Select or drop files first!");
 
-            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission().then(res => {
-                    if (res === 'granted') initTouchAndStackListeners();
-                });
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(res => {
+                        if (res === 'granted') {
+                            initSensors();
+                        } else {
+                            triggerGravityDrop();
+                        }
+                    })
+                    .catch(() => triggerGravityDrop());
+            } else if (window.DeviceOrientationEvent || window.DeviceMotionEvent) {
+                initSensors();
             } else {
-                initTouchAndStackListeners();
+                triggerGravityDrop();
             }
         }
 
-        function initTouchAndStackListeners() {
-            document.getElementById('tiltAngleDisplay').innerText = "Sensors Online: Touch phone tops or stack together!";
+        function initSensors() {
+            const statusBox = document.getElementById('tiltAngleDisplay');
+            if (statusBox) statusBox.innerText = "Sensors Active: Bump tops together or lay flat!";
 
-            // 1. Proximity Sensor API
-            if ('ProximitySensor' in window) {
-                try {
-                    const prox = new ProximitySensor();
-                    prox.addEventListener('reading', () => {
-                        if (prox.distance === 0 && grvFiles.length && !isDropped) {
-                            triggerGravityDrop();
-                        }
-                    });
-                    prox.start();
-                } catch (e) {}
-            }
-
-            // 2. Physical Tap/Bump Shock Detection
+            // 1. SENSITIVE BUMP / TAP DETECTOR
             window.addEventListener('devicemotion', e => {
                 const acc = e.accelerationIncludingGravity;
-                if (!acc) return;
-                const totalForce = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+                if (!acc || isDropped || !grvFiles.length) return;
+
+                const force = Math.sqrt((acc.x || 0)**2 + (acc.y || 0)**2 + (acc.z || 0)**2);
                 const now = Date.now();
 
-                if (totalForce > 18 && (now - lastMotionPeak > 800)) {
-                    lastMotionPeak = now;
-                    if (grvFiles.length && !isDropped) {
-                        triggerGravityDrop();
-                    }
+                // 13.5 m/s² natural light bump threshold
+                if (force > 13.5 && (now - lastPeakTime > 900)) {
+                    lastPeakTime = now;
+                    triggerGravityDrop();
                 }
             }, true);
 
-            // 3. Flat Stacking Detection
+            // 2. FLAT / STACK DETECTOR (Pitch ~0° & Roll ~0°)
             window.addEventListener('deviceorientation', e => {
+                if (isDropped || !grvFiles.length) return;
+
                 const pitch = Math.round(e.beta || 0);
                 const roll = Math.round(e.gamma || 0);
 
@@ -972,7 +974,8 @@
                     bubble.style.transform = `translate(${Math.max(-20, Math.min(20, roll))}px, ${Math.max(-20, Math.min(20, pitch))}px)`;
                 }
 
-                if (Math.abs(pitch) < 12 && Math.abs(roll) < 12 && !isDropped && grvFiles.length) {
+                // If phone is laid flat (Pitch < 18° and Roll < 18°)
+                if (Math.abs(pitch) < 18 && Math.abs(roll) < 18) {
                     triggerGravityDrop();
                 }
             }, true);
@@ -980,14 +983,14 @@
 
         function openDeck() {
             const status = document.getElementById('recvStatus');
-            status.innerText = "Deck Online — Waiting for phone top-touch or stack drop...";
+            status.innerText = "Deck Online — Waiting for bump or stack drop...";
             status.style.color = "var(--success)";
 
             if (socket) {
                 socket.off('receive_gravity_file');
                 socket.on('receive_gravity_file', incoming => {
                     playChime(1400);
-                    status.innerText = `⚡ Caught ${incoming.files.length} file(s)! Downloading...`;
+                    status.innerText = `⚡ Caught ${incoming.files.length} file(s)! Auto-downloading...`;
                     const dlBox = document.getElementById('gravityDownloads');
                     dlBox.innerHTML = '';
 
