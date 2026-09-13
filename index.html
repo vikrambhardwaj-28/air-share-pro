@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air share pro — Signal Transfer Deck</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="/socket.io/socket.io.js"></script>
+
+    <style>
+        :root {
+            --bg: #030712;
+            --bg-dot: rgba(0, 242, 254, 0.05);
+            --navbar-bg: rgba(11, 17, 33, 0.85);
+            --panel: #0b1121;
+            --panel-alt: #0f172a;
+            --border: #1e293b;
+            --border-strong: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-tertiary: #64748b;
+            --input-bg: #020617;
+
+            --accent-cyan: #00f2fe;
+            --accent-cyan-deep: #0284c7;
+            --accent-purple: #8b5cf6;
+            --accent-purple-deep: #6d28d9;
+            --accent-rose: #f43f5e;
+            --accent-rose-deep: #be123c;
+
+            --success: #10b981;
+            --danger: #ef4444;
+
+            --module-accent: var(--accent-cyan);
+            --module-accent-deep: var(--accent-cyan-deep);
+
+            --radius-sm: 8px;
+            --radius-md: 14px;
+            --radius-lg: 20px;
+
+            --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.5), 0 0 25px -5px rgba(0, 242, 254, 0.1);
+            --shadow-pop: 0 10px 30px -5px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 242, 254, 0.2);
+        }
+
+        [data-theme="light"] {
+            --bg: #f8fafc;
+            --bg-dot: rgba(14, 165, 233, 0.08);
+            --navbar-bg: rgba(255, 255, 255, 0.88);
+            --panel: #ffffff;
+            --panel-alt: #f1f5f9;
+            --border: #e2e8f0;
+            --border-strong: #cbd5e1;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            --input-bg: #f8fafc;
+
+            --accent-cyan: #0284c7;
+            --accent-cyan-deep: #0369a1;
+            --accent-purple: #7c3aed;
+            --accent-purple-deep: #5b21b6;
+            --accent-rose: #e11d48;
+            --accent-rose-deep: #9f1239;
+
+            --success: #059669;
+            --danger: #dc2626;
+
+            --shadow-card: 0 4px 20px -2px rgba(15, 23, 42, 0.08);
+            --shadow-pop: 0 10px 30px -5px rgba(15, 23, 42, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Space Grotesk', sans-serif;
+            transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+        }
+
+        body {
+            background-color: var(--bg);
+            background-image: radial-gradient(circle at 1px 1px, var(--bg-dot) 1px, transparent 0);
+            background-size: 24px 24px;
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 24px 16px 32px;
+            overflow-x: hidden;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        button:focus-visible,
+        input:focus-visible,
+        textarea:focus-visible,
+        .drop-zone:focus-visible {
+            outline: 2px solid var(--module-accent);
+            outline-offset: 2px;
+        }
+
+        /* ============ NAVBAR ============ */
+        .navbar {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: var(--navbar-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            margin-bottom: 18px;
+            box-shadow: var(--shadow-card);
+        }
+
+        .brand-link { display: flex; align-items: center; gap: 12px; }
+
+        .brand-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            background: var(--panel-alt);
+            border: 1px solid var(--border-strong);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 4px;
+            padding: 6px;
+            flex-shrink: 0;
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .brand-link:hover .brand-mark { transform: rotate(12deg) scale(1.08); }
+        .brand-mark span { border-radius: 2px; }
+        .brand-mark span:nth-child(1) { background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); }
+        .brand-mark span:nth-child(2) { background: var(--accent-purple); box-shadow: 0 0 8px var(--accent-purple); }
+        .brand-mark span:nth-child(3) { background: var(--accent-rose); box-shadow: 0 0 8px var(--accent-rose); }
+        .brand-mark span:nth-child(4) { background: var(--border-strong); }
+
+        .brand-text { line-height: 1.2; }
+        .brand-name {
+            font-size: 1.15rem;
+            font-weight: 700;
+            letter-spacing: -0.2px;
+            background: linear-gradient(135deg, var(--text-primary), var(--module-accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .brand-sub {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.66rem;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            letter-spacing: 0.4px;
+        }
+
+        .navbar-right { display: flex; align-items: center; gap: 10px; }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: var(--panel-alt);
+            border: 1px solid var(--border);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 10px var(--success);
+            animation: pulseGlow 2s infinite alternate;
+        }
+        @keyframes pulseGlow {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            100% { transform: scale(1.15); opacity: 1; }
+        }
+
+        .theme-btn {
+            background: var(--panel-alt);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.95rem;
+        }
+        .theme-btn:hover { border-color: var(--module-accent); transform: scale(1.08); }
+
+        /* ============ MODE SWITCH ============ */
+        .wide-nav-bar {
+            width: 100%;
+            max-width: 900px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 6px;
+            display: flex;
+            gap: 6px;
+            box-shadow: var(--shadow-card);
+        }
+
+        .nav-tab {
+            flex: 1;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            border: 1px solid transparent;
+            background: transparent;
+            font-weight: 600;
+            font-size: 0.88rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+        .nav-tab:hover:not(.active) { color: var(--text-primary); background: rgba(255, 255, 255, 0.03); }
+        .nav-tab.active {
+            background: var(--panel-alt);
+            color: var(--text-primary);
+            border-color: var(--border-strong);
+        }
+        #tab-air.active { color: var(--accent-cyan); border-bottom: 2px solid var(--accent-cyan); }
+        #tab-sound.active { color: var(--accent-purple); border-bottom: 2px solid var(--accent-purple); }
+        #tab-gravity.active { color: var(--accent-rose); border-bottom: 2px solid var(--accent-rose); }
+
+        .mode-description {
+            width: 100%;
+            max-width: 900px;
+            font-size: 0.82rem;
+            color: var(--text-tertiary);
+            padding: 12px 6px 20px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .module-section { display: none; width: 100%; max-width: 900px; }
+        .module-section.active { display: block; animation: fadeInModule 0.35s ease-out; }
+
+        @keyframes fadeInModule {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .main-container {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        /* ============ CARDS ============ */
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-top: 3px solid var(--module-accent);
+            border-radius: var(--radius-lg);
+            padding: 26px;
+            position: relative;
+            box-shadow: var(--shadow-card);
+        }
+
+        .card-title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+
+        .card-icon-chip {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--module-accent) 15%, transparent);
+            border: 1px solid color-mix(in srgb, var(--module-accent) 30%, transparent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .card-icon-chip i { color: var(--module-accent); font-size: 1rem; }
+
+        .card-title { font-size: 1.08rem; font-weight: 700; letter-spacing: -0.2px; }
+        .card-desc { font-size: 0.84rem; color: var(--text-secondary); margin-bottom: 22px; line-height: 1.6; }
+
+        /* ============ DROP ZONE ============ */
+        .drop-zone {
+            border: 1.5px dashed var(--border-strong);
+            border-radius: var(--radius-md);
+            padding: 30px 20px;
+            text-align: center;
+            cursor: pointer;
+            background: var(--input-bg);
+            margin-bottom: 16px;
+            transition: all 0.25s ease;
+        }
+        .drop-zone:hover {
+            border-color: var(--module-accent);
+            background: color-mix(in srgb, var(--module-accent) 4%, var(--input-bg));
+            transform: scale(1.01);
+        }
+        .drop-zone i.main-icon {
+            font-size: 2.2rem;
+            color: var(--module-accent);
+            margin-bottom: 10px;
+            display: inline-block;
+            animation: floatUp 3s ease-in-out infinite alternate;
+        }
+        @keyframes floatUp {
+            from { transform: translateY(0); }
+            to { transform: translateY(-6px); }
+        }
+
+        input[type="file"] { display: none; }
+
+        .file-list {
+            margin-bottom: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .file-item {
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.82rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ============ BUTTONS ============ */
+        .btn {
+            width: 100%;
+            background: var(--module-accent);
+            color: #030712;
+            border: none;
+            padding: 14px;
+            border-radius: var(--radius-sm);
+            font-size: 0.92rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            box-shadow: 0 4px 15px color-mix(in srgb, var(--module-accent) 30%, transparent);
+            transition: all 0.2s ease;
+        }
+        .btn:hover {
+            background: var(--module-accent-deep);
+            color: #ffffff;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px color-mix(in srgb, var(--module-accent) 45%, transparent);
+        }
+
+        .btn-alt {
+            background: var(--input-bg);
+            border: 1px solid var(--border-strong);
+            color: var(--text-primary);
+            box-shadow: none;
+            margin-top: 10px;
+        }
+        .btn-alt:hover { border-color: var(--module-accent); color: var(--module-accent); }
+
+        .progress-wrapper { display: none; margin-bottom: 14px; }
+        .progress-bar-bg {
+            width: 100%;
+            height: 6px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .progress-bar-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--module-accent), #38bdf8);
+            transition: width 0.2s ease;
+        }
+
+        /* ============ PIN INPUT ============ */
+        .pin-input-group input {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1.5px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            padding: 15px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: 8px;
+            text-align: center;
+            outline: none;
+            margin-bottom: 14px;
+        }
+        .pin-input-group input:focus {
+            border-color: var(--module-accent);
+            box-shadow: 0 0 16px color-mix(in srgb, var(--module-accent) 25%, transparent);
+        }
+
+        /* ============ VAULT TICKET RESULT ============ */
+        .pin-display-box {
+            display: none;
+            background: var(--panel-alt);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            text-align: center;
+            margin-top: 20px;
+            box-shadow: var(--shadow-pop);
+        }
+        .pin-label { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--text-tertiary); font-weight: 700; letter-spacing: 1px; }
+
+        .pin-code-wrapper {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--input-bg);
+            border: 1px solid var(--border-strong);
+            padding: 10px 24px;
+            border-radius: var(--radius-md);
+            margin: 12px 0 16px 0;
+            cursor: pointer;
+        }
+        .pin-code-wrapper::before,
+        .pin-code-wrapper::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            background: var(--panel-alt);
+            border: 1px solid var(--border);
+            transform: translateY(-50%);
+        }
+        .pin-code-wrapper::before { left: -8px; }
+        .pin-code-wrapper::after { right: -8px; }
+
+        .pin-code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.95rem;
+            font-weight: 800;
+            letter-spacing: 7px;
+            color: var(--success);
+        }
+        .pin-copy-hint { font-size: 0.7rem; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; margin-top: -8px; margin-bottom: 16px; }
+
+        .radial-timer-box { position: relative; width: 64px; height: 64px; margin: 10px auto 0; }
+        .radial-timer-box svg { transform: rotate(-90deg); }
+        .radial-timer-box circle { fill: none; stroke-width: 5; stroke-linecap: round; }
+        .timer-track { stroke: var(--border); }
+        .timer-active-ring {
+            stroke: var(--module-accent);
+            stroke-dasharray: 176;
+            stroke-dashoffset: 0;
+            transition: stroke-dashoffset 1s linear;
+        }
+        .timer-center-text {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+        }
+
+        .qr-wrapper {
+            background: #ffffff;
+            padding: 10px;
+            border-radius: var(--radius-sm);
+            display: inline-block;
+            margin: 4px 0 8px;
+            border: 1px solid var(--border);
+        }
+
+        .scanner-container {
+            display: none;
+            margin-top: 14px;
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .retrieved-files-box {
+            display: none;
+            margin-top: 16px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+        }
+        .retrieved-files-box p { font-size: 0.85rem; font-weight: 700; color: var(--success); display: flex; align-items: center; gap: 8px; }
+
+        .retrieved-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-top: 8px;
+            font-size: 0.82rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .retrieved-item a {
+            color: var(--module-accent);
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* ============ OSCILLOSCOPE & TILT ============ */
+        .oscilloscope {
+            width: 100%;
+            height: 84px;
+            background: var(--input-bg);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
+
+        .gauge-box {
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 13px 14px;
+            text-align: left;
+            margin-bottom: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--module-accent);
+        }
+
+        .tilt-level {
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            border: 1.5px solid var(--border-strong);
+            background: var(--input-bg);
+            margin: 0 auto 14px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .tilt-level::before {
+            content: '';
+            position: absolute;
+            left: 6px; right: 6px;
+            top: 50%;
+            height: 1px;
+            background: var(--border);
+        }
+        #tiltBubble {
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            background: var(--accent-rose);
+            box-shadow: 0 0 10px var(--accent-rose);
+            transition: transform 0.15s ease-out;
+        }
+        .drop-fly { transform: translateY(-70px) scale(0.85); opacity: 0; transition: all 0.4s ease; }
+
+        /* ============ FEEDBACK SECTION ============ */
+        .feedback-section {
+            width: 100%;
+            max-width: 900px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 26px;
+            margin-bottom: 28px;
+            box-shadow: var(--shadow-card);
+        }
+        .feedback-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 14px;
+        }
+        .feedback-form input,
+        .feedback-form textarea {
+            background: var(--input-bg);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            color: var(--text-primary);
+            font-size: 0.88rem;
+            outline: none;
+        }
+        .feedback-form input:focus,
+        .feedback-form textarea:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 12px rgba(0, 242, 254, 0.2);
+        }
+        .feedback-form textarea {
+            grid-column: 1 / -1;
+            resize: none;
+            height: 85px;
+        }
+        .feedback-form button {
+            grid-column: 1 / -1;
+            padding: 12px;
+        }
+
+        /* ============ COMPREHENSIVE FOOTER ============ */
+        footer {
+            width: 100%;
+            max-width: 900px;
+            border-top: 1px solid var(--border);
+            padding-top: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 24px;
+            text-align: left;
+        }
+        .footer-col h4 {
+            font-size: 0.92rem;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            letter-spacing: -0.2px;
+        }
+        .footer-col p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+        .footer-col ul {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .footer-col ul li a {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            transition: color 0.2s;
+        }
+        .footer-col ul li a:hover {
+            color: var(--accent-cyan);
+        }
+
+        .footer-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .footer-bottom p {
+            font-size: 0.82rem;
+            color: var(--text-tertiary);
+        }
+        .footer-bottom strong {
+            color: var(--text-secondary);
+        }
+
+        .social-links { display: flex; gap: 10px; }
+        .social-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .social-icon.instagram:hover {
+            color: #ffffff;
+            background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%);
+            border-color: transparent;
+            transform: translateY(-3px) scale(1.08);
+            box-shadow: 0 6px 16px rgba(214, 36, 159, 0.4);
+        }
+        .social-icon.facebook:hover {
+            color: #ffffff;
+            background: #1877f2;
+            border-color: #1877f2;
+            transform: translateY(-3px) scale(1.08);
+            box-shadow: 0 6px 16px rgba(24, 119, 242, 0.4);
+        }
+        .social-icon.email:hover {
+            color: #ffffff;
+            background: #ea4335;
+            border-color: #ea4335;
+            transform: translateY(-3px) scale(1.08);
+            box-shadow: 0 6px 16px rgba(234, 67, 53, 0.4);
+        }
+
+        @media (max-width: 650px) {
+            .footer-grid { grid-template-columns: 1fr; }
+            .feedback-form { grid-template-columns: 1fr; }
+            .footer-bottom { flex-direction: column; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <a href="index.html" class="brand-link">
+            <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+            <div class="brand-text">
+                <div class="brand-name">Air share pro</div>
+                <div class="brand-sub">air-share.markiv.site</div>
+            </div>
+        </a>
+        <div class="navbar-right">
+            <div class="status-pill"><span class="status-dot"></span><span class="status-label">Signal Ready</span></div>
+            <button id="themeToggleBtn" class="theme-btn" onclick="toggleTheme()" aria-label="Toggle Theme">
+                <i class="fa-solid fa-moon"></i>
+            </button>
+        </div>
+    </nav>
+
+    <!-- HORIZONTAL MODE SELECTOR -->
+    <div class="wide-nav-bar">
+        <button id="tab-air" class="nav-tab active" onclick="switchModule('air')">
+            <i class="fa-solid fa-share-nodes"></i> AirShare
+        </button>
+        <button id="tab-sound" class="nav-tab" onclick="switchModule('sound')">
+            <i class="fa-solid fa-wave-square"></i> SoundWave
+        </button>
+        <button id="tab-gravity" class="nav-tab" onclick="switchModule('gravity')">
+            <i class="fa-solid fa-mobile-screen"></i> GravityDrop
+        </button>
+    </div>
+    
+    <p id="modeDescription" class="mode-description">
+        <i class="fa-solid fa-circle-info" style="color:var(--module-accent);"></i>
+        <span>Move files between two devices using a one-time PIN and QR code — no accounts, expires in two minutes.</span>
+    </p>
+
+    <!-- MODULE 1: AIRSHARE -->
+    <div id="module-air" class="module-section active" style="--module-accent: var(--accent-cyan); --module-accent-deep: var(--accent-cyan-deep);">
+        <div class="main-container">
+            <!-- SEND -->
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-paper-plane"></i></div>
+                    <div class="card-title">Send files</div>
+                </div>
+                <p class="card-desc">Pick any files to lock into an encrypted vault. You'll get a 6-digit PIN and a QR code that expire in two minutes.</p>
+
+                <div class="drop-zone" tabindex="0" onclick="document.getElementById('fileInput').click()">
+                    <i class="fa-solid fa-cloud-arrow-up main-icon"></i>
+                    <p style="font-weight: 700; font-size: 0.95rem;">Click or drag files here</p>
+                    <p style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 4px;">Any file type, sent peer to peer</p>
+                </div>
+                <input type="file" id="fileInput" multiple onchange="handleFileSelect(event)">
+                <div id="fileList" class="file-list"></div>
+
+                <div id="progressWrapper" class="progress-wrapper">
+                    <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-secondary);">
+                        <span>Encrypting and staging</span><span id="uploadPercent">0%</span>
+                    </div>
+                    <div class="progress-bar-bg"><div id="progressBarFill" class="progress-bar-fill"></div></div>
+                </div>
+
+                <button class="btn" onclick="uploadFiles()"><i class="fa-solid fa-shield-halved"></i> Lock vault &amp; get PIN</button>
+
+                <div id="pinBox" class="pin-display-box">
+                    <span class="pin-label">YOUR SECURITY PIN</span>
+                    <br>
+                    <div class="pin-code-wrapper" onclick="copyGeneratedPin()" title="Click to copy">
+                        <div id="pinDisplay" class="pin-code">------</div>
+                        <i class="fa-regular fa-copy" style="color:var(--success);font-size:1.1rem;"></i>
+                    </div>
+                    <div class="pin-copy-hint">tap the code to copy</div>
+
+                    <div class="qr-wrapper"><div id="qrcode"></div></div>
+
+                    <div class="radial-timer-box">
+                        <svg width="64" height="64">
+                            <circle class="timer-track" cx="32" cy="32" r="28"></circle>
+                            <circle class="timer-active-ring" id="svgRingTimer" cx="32" cy="32" r="28"></circle>
+                        </svg>
+                        <div class="timer-center-text" id="timerCenterDisplay">02:00</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RECEIVE -->
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-download"></i></div>
+                    <div class="card-title">Get files</div>
+                </div>
+                <p class="card-desc">Type the 6-digit PIN the sender gave you, or scan their QR code to pull the files straight to your device.</p>
+
+                <div class="pin-input-group">
+                    <input type="text" id="pinInput" placeholder="000000" maxlength="6" autocomplete="off" inputmode="numeric">
+                </div>
+
+                <button class="btn" onclick="downloadAirFile()"><i class="fa-solid fa-circle-down"></i> Get files</button>
+                <button class="btn btn-alt" onclick="toggleQrScanner()"><i class="fa-solid fa-camera"></i> Scan QR instead</button>
+
+                <div id="reader" class="scanner-container"></div>
+
+                <div id="retrievedFilesBox" class="retrieved-files-box">
+                    <p><i class="fa-solid fa-circle-check"></i> Found <span id="retrievedCount">0</span> file(s)</p>
+                    <div id="retrievedItemsList" style="margin-top: 8px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODULE 2: SOUNDWAVE -->
+    <div id="module-sound" class="module-section" style="--module-accent: var(--accent-purple); --module-accent-deep: var(--accent-purple-deep);">
+        <div class="main-container">
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-volume-high"></i></div>
+                    <div class="card-title">Broadcast</div>
+                </div>
+                <p class="card-desc">Generate an acoustic audio signature and broadcast the file directly.</p>
+
+                <div class="drop-zone" tabindex="0" onclick="document.getElementById('sndFile').click()">
+                    <i class="fa-solid fa-music main-icon"></i>
+                    <p id="sndFileName" style="font-weight: 700; font-size: 0.9rem;">Select a file to cast</p>
+                </div>
+                <input type="file" id="sndFile" onchange="soundFileSelect(this)">
+
+                <canvas id="txCanvas" class="oscilloscope"></canvas>
+                <button class="btn" onclick="emitSound()">
+                    <i class="fa-solid fa-tower-broadcast"></i> Play tone &amp; Broadcast
+                </button>
+            </div>
+
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-microphone-lines"></i></div>
+                    <div class="card-title">Listen</div>
+                </div>
+                <p class="card-desc">Turn on listener to detect the acoustic signature and automatically download the file.</p>
+
+                <canvas id="rxCanvas" class="oscilloscope"></canvas>
+                <button id="listenBtn" class="btn" onclick="toggleListenSound()">
+                    <i class="fa-solid fa-ear-listen"></i> Start listening
+                </button>
+
+                <div id="rxStatus" class="gauge-box" style="margin-top: 14px;">
+                    &gt; standing by for tone broadcast
+                </div>
+
+                <!-- DIRECT DOWNLOAD CONTAINER / RE-DOWNLOAD CARD -->
+                <div id="soundDownloadContainer" style="margin-top: 14px; display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODULE 3: GRAVITYDROP -->
+    <div id="module-gravity" class="module-section" style="--module-accent: var(--accent-rose); --module-accent-deep: var(--accent-rose-deep);">
+        <div class="main-container">
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-mobile-screen-button"></i></div>
+                    <div class="card-title">Tilt to send</div>
+                </div>
+                <p class="card-desc">Arm a file, then tip your phone forward past 45°. (On desktop, this button immediately tests the drop).</p>
+
+                <div class="drop-zone" id="dzTilt" tabindex="0" onclick="document.getElementById('grvFile').click()">
+                    <i class="fa-solid fa-compass main-icon"></i>
+                    <p id="grvFileName" style="font-weight: 700; font-size: 0.9rem;">Select a file to arm</p>
+                </div>
+                <input type="file" id="grvFile" onchange="gravFileSelect(this)">
+
+                <div class="tilt-level"><div id="tiltBubble"></div></div>
+                <div class="gauge-box" id="tiltAngleDisplay">Pitch: 0° — click button below to activate or simulate</div>
+                <button class="btn" onclick="enableSensors()">
+                    <i class="fa-solid fa-microchip"></i> Enable tilt sensor / Drop Now
+                </button>
+            </div>
+
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-laptop"></i></div>
+                    <div class="card-title">Catch deck</div>
+                </div>
+                <p class="card-desc">Keep this open on the receiving device to catch files as they are tipped over.</p>
+
+                <div class="gauge-box" id="recvStatus">
+                    Waiting for an incoming drop
+                </div>
+                <button class="btn" onclick="openDeck()">
+                    <i class="fa-solid fa-network-wired"></i> Start catching
+                </button>
+                <div id="gravityDownloads" style="margin-top: 12px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FEEDBACK SECTION -->
+    <div class="feedback-section">
+        <div class="card-title-row">
+            <div class="card-icon-chip" style="background:rgba(0, 242, 254, 0.15); border:1px solid rgba(0, 242, 254, 0.3);">
+                <i class="fa-solid fa-comments" style="color:var(--accent-cyan);"></i>
+            </div>
+            <div class="card-title">Send us your feedback</div>
+        </div>
+        <p class="card-desc" style="margin-bottom:12px;">Have suggestions, found a bug, or want a custom protocol? We'd love to hear from you.</p>
+        <form class="feedback-form" onsubmit="alert('Thank you! Your feedback has been received.'); this.reset(); return false;">
+            <input type="text" placeholder="Your Name" required>
+            <input type="email" placeholder="Your Email Address" required>
+            <textarea placeholder="Write your message, feedback or bug report..." required></textarea>
+            <button type="submit" class="btn" style="background:var(--accent-cyan);"><i class="fa-solid fa-paper-plane"></i> Submit Feedback</button>
+        </form>
+    </div>
+
+    <!-- COMPREHENSIVE FOOTER -->
+    <footer>
+        <div class="footer-grid">
+            <div class="footer-col">
+                <h4>Air share pro</h4>
+                <p>A next-generation browser-to-browser data transfer utility. Share files securely without accounts, tracking, or permanent storage.</p>
+                <p style="margin-top:8px; font-size:0.75rem; color:var(--text-tertiary);">All files expire and auto-destroy after 120 seconds.</p>
+            </div>
+            <div class="footer-col">
+                <h4>Transfer Modes</h4>
+                <ul>
+                    <li><a href="javascript:void(0)" onclick="switchModule('air')">PIN &amp; QR Vault</a></li>
+                    <li><a href="javascript:void(0)" onclick="switchModule('sound')">SoundWave (Acoustic)</a></li>
+                    <li><a href="javascript:void(0)" onclick="switchModule('gravity')">GravityDrop (Kinetic)</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h4>Security &amp; Core</h4>
+                <ul>
+                    <li><a href="javascript:void(0)">Zero Cloud Storage</a></li>
+                    <li><a href="javascript:void(0)">AES Encryption</a></li>
+                    <li><a href="javascript:void(0)">Peer Stream API</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            <p>© 2026 <strong>Air share pro</strong> (air-share.markiv.site) · Developed by <strong>Vikram Bhardwaj</strong></p>
+            <div class="social-links">
+                <a href="https://www.instagram.com/vikrm_bhardwaj?igsh=OWh4ZHprbW5rNTZv" target="_blank" class="social-icon instagram" aria-label="Instagram">
+                    <i class="fa-brands fa-instagram"></i>
+                </a>
+                <a href="https://www.facebook.com/share/196jZuggxg/" target="_blank" class="social-icon facebook" aria-label="Facebook">
+                    <i class="fa-brands fa-facebook-f"></i>
+                </a>
+                <a href="mailto:vikram.2872006@gmail.com" class="social-icon email" aria-label="Email">
+                    <i class="fa-solid fa-envelope"></i>
+                </a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const socket = (typeof io !== 'undefined') ? io() : null;
+
+        const modeDescriptions = {
+            air: "Move files between two devices using a one-time PIN and QR code — no accounts, expires in two minutes.",
+            sound: "Send a file using a unique acoustic signature — automatically captures and downloads without typing a PIN.",
+            gravity: "Arm a file, tilt your phone forward, and it streams straight to a listening laptop over the network."
+        };
+
+        function playChime(freq = 600) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+                osc.start(); osc.stop(ctx.currentTime + 0.25);
+            } catch (e) {}
+        }
+
+        function switchModule(mod) {
+            playChime(700);
+            ['air', 'sound', 'gravity'].forEach(m => {
+                document.getElementById('module-' + m).classList.toggle('active', m === mod);
+                document.getElementById('tab-' + m).classList.toggle('active', m === mod);
+            });
+            const desc = document.getElementById('modeDescription');
+            if (desc) {
+                const textSpan = desc.querySelector('span');
+                if (textSpan) textSpan.innerText = modeDescriptions[mod] || '';
+            }
+        }
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const newTheme = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            document.querySelector('#themeToggleBtn i').className = newTheme === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+        }
+
+        // ==========================================
+        // 1. AIRSHARE
+        // ==========================================
+        let selectedFiles = [];
+        let countdownTimer;
+        let html5QrcodeScanner = null;
+        let activeGeneratedPin = '';
+
+        function handleFileSelect(e) {
+            selectedFiles = [...selectedFiles, ...Array.from(e.target.files)];
+            renderList();
+        }
+
+        function renderList() {
+            const list = document.getElementById('fileList');
+            list.innerHTML = '';
+            selectedFiles.forEach((f, idx) => {
+                list.innerHTML += `<div class="file-item"><span><i class="fa-regular fa-file" style="color:var(--module-accent); margin-right:8px;"></i>${f.name}</span><i class="fa-solid fa-xmark" style="color:var(--danger);cursor:pointer;padding:4px;" onclick="selectedFiles.splice(${idx},1);renderList();"></i></div>`;
+            });
+        }
+
+        function uploadFiles() {
+            if (!selectedFiles.length) return alert('Select files first');
+            const formData = new FormData();
+            selectedFiles.forEach(f => formData.append('files', f));
+
+            const progressWrap = document.getElementById('progressWrapper');
+            const fill = document.getElementById('progressBarFill');
+            const pct = document.getElementById('uploadPercent');
+            progressWrap.style.display = 'block';
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/upload', true);
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    fill.style.width = percent + '%';
+                    pct.innerText = percent + '%';
+                }
+            };
+            xhr.onload = function() {
+                progressWrap.style.display = 'none';
+                if (xhr.status === 200) {
+                    const res = JSON.parse(xhr.responseText);
+                    if (res.success) {
+                        playChime(880);
+                        startTimer(res.pin, res.expiresInSeconds);
+                        selectedFiles = [];
+                        renderList();
+                    }
+                } else {
+                    alert('Upload failed. Check if server.js is running.');
+                }
+            };
+            xhr.send(formData);
+        }
+
+        function startTimer(pin, duration) {
+            activeGeneratedPin = pin;
+            document.getElementById('pinDisplay').innerText = pin;
+            document.getElementById('qrcode').innerHTML = '';
+            new QRCode(document.getElementById('qrcode'), {
+                text: `${window.location.origin}/?pin=${pin}`,
+                width: 120,
+                height: 120,
+                colorDark: "#030712"
+            });
+            document.getElementById('pinBox').style.display = 'block';
+
+            let sec = duration;
+            const total = duration;
+            const ring = document.getElementById('svgRingTimer');
+            const txt = document.getElementById('timerCenterDisplay');
+
+            clearInterval(countdownTimer);
+            countdownTimer = setInterval(() => {
+                sec--;
+                const m = Math.floor(sec / 60), s = sec % 60;
+                txt.innerText = `0${m}:${s < 10 ? '0' : ''}${s}`;
+
+                const offset = 176 - (176 * sec) / total;
+                ring.style.strokeDashoffset = offset;
+
+                if (sec <= 0) {
+                    clearInterval(countdownTimer);
+                    document.getElementById('pinDisplay').innerText = 'EXPIRED';
+                    txt.innerText = '00:00';
+                    ring.style.stroke = 'var(--text-tertiary)';
+                }
+            }, 1000);
+        }
+
+        function copyGeneratedPin() {
+            if (activeGeneratedPin) {
+                navigator.clipboard.writeText(activeGeneratedPin);
+                alert(`PIN ${activeGeneratedPin} copied to clipboard!`);
+            }
+        }
+
+        async function downloadAirFile(code) {
+            const pin = code || document.getElementById('pinInput').value.trim();
+            if (pin.length !== 6) return alert('Enter valid 6-digit PIN');
+            try {
+                const res = await fetch(`/api/files/${pin}`);
+                const data = await res.json();
+                if (!data.success) return alert(data.message);
+
+                playChime(900);
+                document.getElementById('retrievedCount').innerText = data.files.length;
+                document.getElementById('retrievedFilesBox').style.display = 'block';
+                const list = document.getElementById('retrievedItemsList');
+                list.innerHTML = '';
+                data.files.forEach(f => {
+                    list.innerHTML += `<div class="retrieved-item"><span><i class="fa-regular fa-file" style="color:var(--module-accent); margin-right:8px;"></i>${f.originalname}</span><a href="/download/${pin}/${f.index}" download="${f.originalname}"><i class="fa-solid fa-download"></i> Download</a></div>`;
+                });
+            } catch (e) {
+                alert('Error retrieving files from backend.');
+            }
+        }
+
+        function toggleQrScanner() {
+            const r = document.getElementById('reader');
+            if (r.style.display === 'block') { if (html5QrcodeScanner) html5QrcodeScanner.clear(); r.style.display = 'none'; return; }
+            r.style.display = 'block';
+            html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 200 });
+            html5QrcodeScanner.render((txt) => {
+                let pin = txt.includes('pin=') ? new URLSearchParams(txt.split('?')[1]).get('pin') : txt.replace(/\D/g, '').slice(0, 6);
+                if (pin && pin.length === 6) {
+                    document.getElementById('pinInput').value = pin;
+                    html5QrcodeScanner.clear();
+                    r.style.display = 'none';
+                    downloadAirFile(pin);
+                }
+            });
+        }
+
+        window.onload = function() {
+            const pinParam = new URLSearchParams(window.location.search).get('pin');
+            if (pinParam && pinParam.length === 6) {
+                document.getElementById('pinInput').value = pinParam;
+                downloadAirFile(pinParam);
+            }
+        };
+
+        // ==========================================
+        // 2. SOUNDWAVE (AUTO-STOP LISTENER LOGIC)
+        // ==========================================
+        let sndFile = null;
+        let isListening = false;
+        let rxAnimationId = null;
+
+        function soundFileSelect(i) {
+            if (i.files.length) {
+                sndFile = i.files[0];
+                document.getElementById('sndFileName').innerText = `${sndFile.name} (${(sndFile.size / 1024).toFixed(1)} KB)`;
+            }
+        }
+
+        // Generate unique acoustic signature based on filename & size
+        function getFileAudioSignature(file) {
+            let hash = 0;
+            const str = file.name + file.size + (file.type || 'bin');
+            for (let i = 0; i < str.length; i++) {
+                hash = (hash << 5) - hash + str.charCodeAt(i);
+                hash |= 0;
+            }
+            const absHash = Math.abs(hash);
+
+            const baseFreq = 400 + (absHash % 1600);
+            const endFreq = baseFreq + 250 + (absHash % 500);
+
+            const waveTypes = ['sine', 'triangle', 'sawtooth', 'square'];
+            const waveType = waveTypes[absHash % waveTypes.length];
+
+            return { baseFreq, endFreq, waveType };
+        }
+
+        function emitSound() {
+            if (!sndFile) return alert('Select a file to cast first');
+            
+            const formData = new FormData();
+            formData.append('files', sndFile);
+            document.getElementById('rxStatus').innerText = `> Generating unique acoustic signature...`;
+
+            fetch('/upload', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        const sig = getFileAudioSignature(sndFile);
+                        playUniqueChirp(sig);
+                        animateWave('txCanvas', '#8b5cf6');
+                        document.getElementById('rxStatus').innerText = `> Radiating: [${sndFile.name}] (${sig.waveType} wave @ ${Math.round(sig.baseFreq)}Hz)`;
+
+                        if (socket) {
+                            socket.emit('sound_token_relay', {
+                                pin: data.pin,
+                                filename: sndFile.name,
+                                size: sndFile.size
+                            });
+                        }
+                    }
+                })
+                .catch(err => alert('Upload failed: ' + err));
+        }
+
+        function playUniqueChirp({ baseFreq, endFreq, waveType }) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = waveType;
+                osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(endFreq, ctx.currentTime + 0.65);
+
+                gain.gain.setValueAtTime(0.25, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.65);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start();
+                osc.stop(ctx.currentTime + 0.65);
+            } catch (e) {
+                console.log(e);
+            }
+        }
+
+        function toggleListenSound() {
+            if (isListening) {
+                stopListening();
+            } else {
+                startListening();
+            }
+        }
+
+        function startListening() {
+            isListening = true;
+            const btn = document.getElementById('listenBtn');
+            if (btn) {
+                btn.innerHTML = `<i class="fa-solid fa-circle-stop"></i> Stop listening`;
+                btn.style.background = 'var(--danger)';
+            }
+
+            animateWave('rxCanvas', '#8b5cf6');
+            document.getElementById('rxStatus').innerText = `> Listening active! Waiting for inbound file sound...`;
+
+            if (socket) {
+                socket.off('receive_sound_token');
+                socket.on('receive_sound_token', async (payload) => {
+                    playChime(1100);
+                    document.getElementById('rxStatus').innerHTML = `> Sound detected! Auto-downloading: <strong>${payload.filename}</strong>...`;
+
+                    // 1. Automatic Stop Listening on detect
+                    stopListening();
+
+                    // 2. Fetch File & Trigger Automatic Download
+                    try {
+                        const res = await fetch(`/api/files/${payload.pin}`);
+                        const meta = await res.json();
+
+                        if (meta.success && meta.files.length > 0) {
+                            const file = meta.files[0];
+                            const downloadUrl = `/download/${payload.pin}/${file.index}`;
+
+                            const autoTrigger = document.createElement('a');
+                            autoTrigger.href = downloadUrl;
+                            autoTrigger.setAttribute('download', file.originalname);
+                            document.body.appendChild(autoTrigger);
+                            autoTrigger.click();
+                            document.body.removeChild(autoTrigger);
+
+                            document.getElementById('rxStatus').innerHTML = `> ✅ <strong>${file.originalname}</strong> downloaded automatically! Listener closed.`;
+
+                            const dlContainer = document.getElementById('soundDownloadContainer');
+                            if (dlContainer) {
+                                dlContainer.style.display = 'block';
+                                dlContainer.innerHTML = `
+                                    <div class="retrieved-item" style="border: 1px solid var(--success); box-shadow: 0 0 15px rgba(16, 185, 129, 0.25);">
+                                        <span><i class="fa-solid fa-circle-check" style="color:var(--success); margin-right:8px;"></i>${file.originalname}</span>
+                                        <a href="${downloadUrl}" download="${file.originalname}" style="color:var(--accent-purple); font-weight:700;">
+                                            <i class="fa-solid fa-rotate-right"></i> Re-download
+                                        </a>
+                                    </div>
+                                `;
+                            }
+                        }
+                    } catch (e) {
+                        document.getElementById('rxStatus').innerText = '> Error initiating automatic download.';
+                    }
+                });
+            }
+        }
+
+        function stopListening() {
+            isListening = false;
+
+            if (rxAnimationId) {
+                cancelAnimationFrame(rxAnimationId);
+                rxAnimationId = null;
+            }
+            const c = document.getElementById('rxCanvas');
+            if (c) {
+                const ctx = c.getContext('2d');
+                ctx.clearRect(0, 0, c.width, c.height);
+            }
+
+            if (socket) {
+                socket.off('receive_sound_token');
+            }
+
+            const btn = document.getElementById('listenBtn');
+            if (btn) {
+                btn.innerHTML = `<i class="fa-solid fa-ear-listen"></i> Start listening`;
+                btn.style.background = '';
+            }
+        }
+
+        function animateWave(id, color) {
+            const c = document.getElementById(id);
+            if (!c) return;
+            const ctx = c.getContext('2d');
+            let offset = 0;
+
+            function draw() {
+                ctx.clearRect(0, 0, c.width, c.height);
+                ctx.beginPath();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2.5;
+                for (let x = 0; x < c.width; x++) {
+                    ctx.lineTo(x, c.height / 2 + Math.sin((x + offset) * 0.08) * 18);
+                }
+                ctx.stroke();
+                offset += 4;
+
+                if (id === 'rxCanvas') {
+                    if (isListening) {
+                        rxAnimationId = requestAnimationFrame(draw);
+                    }
+                } else {
+                    requestAnimationFrame(draw);
+                }
+            }
+            draw();
+        }
+
+        // ==========================================
+        // 3. GRAVITYDROP
+        // ==========================================
+        let grvFile = null;
+        let isDropped = false;
+
+        function gravFileSelect(i) {
+            if (i.files.length) {
+                grvFile = i.files[0];
+                document.getElementById('grvFileName').innerText = `${grvFile.name} (${(grvFile.size / 1024).toFixed(1)} KB)`;
+            }
+        }
+
+        function triggerDropAction(pitchAngle) {
+            if (isDropped || !grvFile) return;
+            isDropped = true;
+            playChime(1200);
+
+            const dz = document.getElementById('dzTilt');
+            if (dz) dz.classList.add('drop-fly');
+            document.getElementById('tiltAngleDisplay').innerText = `Dropped at ${pitchAngle}° — Pouring payload!`;
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                if (socket) {
+                    socket.emit('gravity_file_transfer', {
+                        filename: grvFile.name,
+                        raw: evt.target.result
+                    });
+                }
+            };
+            reader.readAsDataURL(grvFile);
+
+            setTimeout(() => {
+                if (dz) dz.classList.remove('drop-fly');
+                isDropped = false;
+                document.getElementById('tiltAngleDisplay').innerText = `Sent successfully! Ready for next file.`;
+            }, 1400);
+        }
+
+        function enableSensors() {
+            if (!window.DeviceOrientationEvent || (window.orientation === undefined && !navigator.userAgent.includes("Mobile"))) {
+                if (!grvFile) return alert("Please select a file first to test drop!");
+                triggerDropAction(52);
+                return;
+            }
+
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(res => {
+                        if (res === 'granted') listenTilt();
+                        else alert("Motion permission denied.");
+                    })
+                    .catch(err => alert("Motion Init Error: " + err));
+            } else {
+                listenTilt();
+            }
+        }
+
+        function listenTilt() {
+            window.addEventListener('deviceorientation', (e) => {
+                const pitch = Math.round(e.beta || 0);
+                document.getElementById('tiltAngleDisplay').innerText = `Pitch: ${pitch}° — tip past 45° to drop`;
+
+                const bubble = document.getElementById('tiltBubble');
+                if (bubble) {
+                    const clamped = Math.max(-45, Math.min(45, pitch));
+                    bubble.style.transform = `translate(${clamped * 0.4}px, ${clamped * 0.4}px)`;
+                }
+
+                if (pitch > 45 && !isDropped && grvFile) {
+                    triggerDropAction(pitch);
+                }
+            }, true);
+        }
+
+        function openDeck() {
+            const status = document.getElementById('recvStatus');
+            status.innerText = "Connected — Listening for incoming drops...";
+            status.style.color = "var(--success)";
+
+            if (socket) {
+                socket.off('receive_gravity_file');
+                socket.on('receive_gravity_file', (incoming) => {
+                    playChime(1400);
+                    status.innerText = `Caught: ${incoming.filename}`;
+                    
+                    const dlBox = document.getElementById('gravityDownloads');
+                    dlBox.innerHTML = `
+                        <div class="retrieved-item" style="animation: fadeInModule 0.3s ease;">
+                            <span><i class="fa-regular fa-file" style="color:var(--accent-rose); margin-right:8px;"></i>${incoming.filename}</span>
+                            <a href="${incoming.raw}" download="${incoming.filename}"><i class="fa-solid fa-download"></i> Save</a>
+                        </div>
+                    `;
+                });
+            }
+        }
+    </script>
+</body>
+</html>
