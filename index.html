@@ -61,15 +61,13 @@
             --text-secondary: #a1a1a6;
             --text-tertiary: #6e6e73;
             --input-bg: rgba(0, 0, 0, 0.6);
-            --accent-cyan: #2997ff;
-            --accent-cyan-deep: #0071e3;
-            --accent-purple: #af52de;
-            --accent-purple-deep: #8944ab;
-            --accent-rose: #ff375f;
-            --accent-rose-deep: #d32047;
+            --apple-blue: #0071e3;
+            --apple-cyan: #2997ff;
+            --apple-purple: #af52de;
+            --apple-rose: #ff375f;
             --success: #30d158;
             --danger: #ff453a;
-            --module-accent: var(--accent-cyan);
+            --module-accent: var(--apple-cyan);
             --radius-sm: 14px;
             --radius-md: 22px;
             --radius-lg: 32px;
@@ -110,7 +108,7 @@
         body {
             background-color: var(--bg);
             background-image: 
-                radial-gradient(ellipse 90% 60% at 50% -25%, rgba(41, 151, 255, 0.12), transparent 70%),
+                radial-gradient(ellipse 90% 60% at 50% -25%, rgba(41, 151, 255, 0.14), transparent 70%),
                 radial-gradient(circle at 1.5px 1.5px, rgba(255, 255, 255, 0.035) 1.5px, transparent 0);
             background-size: 100% 100%, 36px 36px;
             color: var(--text-primary);
@@ -137,7 +135,7 @@
             position: fixed;
             width: 400px; height: 400px;
             border-radius: 50%;
-            background: radial-gradient(circle, color-mix(in srgb, var(--module-accent) 20%, transparent) 0%, transparent 70%);
+            background: radial-gradient(circle, color-mix(in srgb, var(--module-accent) 24%, transparent) 0%, transparent 70%);
             pointer-events: none;
             z-index: 0;
             transform: translate(-50%, -50%);
@@ -157,7 +155,7 @@
             z-index: 99;
             opacity: 0;
             transform: scale(0.5);
-            transition: all 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .quantum-warp.warp-active {
             opacity: 1;
@@ -173,59 +171,59 @@
 
         a { color: inherit; text-decoration: none; }
 
-        /* FIXED RESPONSIVE NAVBAR - NO OVERFLOW */
+        /* PERFECT RESPONSIVE NAVBAR - NO OVERLAPPING */
         .navbar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 14px 18px;
+            padding: 16px 24px;
             background: var(--navbar-bg);
             backdrop-filter: blur(40px) saturate(200%);
             -webkit-backdrop-filter: blur(40px) saturate(200%);
             border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            margin-bottom: 20px;
+            margin-bottom: 24px;
             box-shadow: var(--shadow-card);
             flex-wrap: wrap;
             gap: 12px;
         }
 
-        .brand-link { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+        .brand-link { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1; }
         
         .brand-mark {
-            width: 38px; height: 38px; border-radius: 11px; background: #000000;
+            width: 40px; height: 40px; border-radius: 12px; background: #000000;
             border: 1px solid rgba(0, 242, 254, 0.5); display: flex; align-items: center; justify-content: center;
             flex-shrink: 0; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.25);
         }
 
-        .brand-text { line-height: 1.2; min-width: 0; overflow: hidden; }
+        .brand-text { line-height: 1.25; min-width: 0; overflow: hidden; }
         .brand-name {
-            font-size: 1rem; font-weight: 600; letter-spacing: -0.02em;
+            font-size: 1.08rem; font-weight: 600; letter-spacing: -0.02em;
             color: var(--text-primary);
-            display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
         }
         .apple-badge {
-            font-size: 0.52rem; font-weight: 500; padding: 2px 6px;
+            font-size: 0.55rem; font-weight: 500; padding: 2px 8px;
             border-radius: 999px; background: rgba(41, 151, 255, 0.15); color: #2997ff;
-            border: 1px solid rgba(41, 151, 255, 0.3); text-transform: uppercase;
+            border: 1px solid rgba(41, 151, 255, 0.3); text-transform: uppercase; letter-spacing: 0.5px;
         }
-        .brand-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .brand-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; font-weight: 500; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        .navbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .navbar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
         .status-pill {
-            display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px;
-            background: var(--panel-alt); border: 1px solid var(--border); font-size: 0.7rem; font-weight: 500;
+            display: flex; align-items: center; gap: 7px; padding: 6px 14px; border-radius: 999px;
+            background: var(--panel-alt); border: 1px solid var(--border); font-size: 0.74rem; font-weight: 500;
         }
         .status-dot {
-            width: 6px; height: 6px; border-radius: 50%; background: var(--success);
-            box-shadow: 0 0 8px rgba(48, 209, 88, 0.7); animation: pulseDot 2s infinite ease-in-out;
+            width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+            box-shadow: 0 0 10px rgba(48, 209, 88, 0.7); animation: pulseDot 2s infinite ease-in-out;
         }
         @keyframes pulseDot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
 
         .theme-btn {
             background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-primary);
-            width: 36px; height: 36px; border-radius: 50%; cursor: pointer; display: flex;
-            align-items: center; justify-content: center; font-size: 0.85rem; transition: transform 0.2s ease;
+            width: 38px; height: 38px; border-radius: 50%; cursor: pointer; display: flex;
+            align-items: center; justify-content: center; font-size: 0.9rem; transition: transform 0.2s ease, background 0.2s ease;
         }
         .theme-btn:hover { transform: scale(1.08); background: rgba(255, 255, 255, 0.15); }
 
@@ -246,28 +244,28 @@
 
         .nav-tab {
             flex: 1 1 0;
-            min-width: 100px;
-            padding: 12px 18px;
+            min-width: 110px;
+            padding: 13px 20px;
             border-radius: 999px;
             color: var(--text-secondary);
             border: 1px solid transparent;
             background: transparent;
             font-weight: 500;
-            font-size: 0.82rem;
+            font-size: 0.86rem;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 7px;
+            gap: 8px;
             cursor: pointer;
             white-space: nowrap;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .nav-tab:hover { color: var(--text-primary); }
         .nav-tab.active {
             background: var(--panel-alt);
             color: var(--text-primary);
             font-weight: 600;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
             transform: scale(1.02);
             border-color: var(--border);
         }
@@ -276,67 +274,70 @@
         #tab-gravity.active { color: var(--apple-rose); }
 
         .mode-description {
-            font-size: 0.82rem; color: var(--text-secondary); padding: 16px 8px 24px;
+            font-size: 0.84rem; color: var(--text-secondary); padding: 16px 8px 24px;
             display: flex; align-items: center; gap: 8px; line-height: 1.5;
         }
 
         .module-section { display: none; }
-        .module-section.active { display: block; animation: iosSpringReveal 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        .module-section.active { display: block; animation: iosSpringReveal 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
 
         @keyframes iosSpringReveal {
-            from { opacity: 0; transform: scale(0.97) translateY(10px); filter: blur(4px); }
+            from { opacity: 0; transform: scale(0.97) translateY(12px); filter: blur(5px); }
             to { opacity: 1; transform: scale(1) translateY(0); filter: blur(0px); }
         }
 
         .main-container {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 24px; margin-bottom: 24px;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+            gap: 26px; margin-bottom: 28px;
         }
 
         .card {
             background: var(--panel);
-            backdrop-filter: blur(40px) saturate(180%);
-            -webkit-backdrop-filter: blur(40px) saturate(180%);
+            backdrop-filter: blur(45px) saturate(200%);
+            -webkit-backdrop-filter: blur(45px) saturate(200%);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 30px 24px;
+            padding: 32px;
             position: relative;
             box-shadow: var(--shadow-card);
             overflow: hidden;
             transform-style: preserve-3d;
-            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
         }
         .card:hover { 
             border-color: var(--border-strong); 
-            transform: translateY(-3px) scale(1.004);
+            transform: translateY(-3px) scale(1.005);
+            box-shadow: 0 35px 70px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.15);
         }
 
         .card-title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
         .card-icon-chip {
-            width: 40px; height: 40px; border-radius: 12px;
+            width: 42px; height: 42px; border-radius: 14px;
             background: color-mix(in srgb, var(--module-accent) 15%, transparent);
             border: 1px solid color-mix(in srgb, var(--module-accent) 30%, transparent);
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            box-shadow: 0 4px 12px color-mix(in srgb, var(--module-accent) 20%, transparent);
         }
-        .card-icon-chip i { color: var(--module-accent); font-size: 0.95rem; }
-        .card-title { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.1px; }
-        .card-desc { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 22px; line-height: 1.6; }
+        .card-icon-chip i { color: var(--module-accent); font-size: 1rem; }
+        .card-title { font-size: 1.12rem; font-weight: 600; letter-spacing: -0.015em; }
+        .card-desc { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 24px; line-height: 1.6; }
 
         .drop-zone {
             border: 1.5px dashed var(--border-strong);
             border-radius: var(--radius-md);
-            padding: 32px 16px;
+            padding: 36px 18px;
             text-align: center;
             cursor: pointer;
             background: var(--input-bg);
             margin-bottom: 20px;
             position: relative;
             overflow: hidden;
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .drop-zone:hover {
             border-color: var(--module-accent);
             background: color-mix(in srgb, var(--module-accent) 8%, var(--input-bg));
+            transform: scale(1.015);
         }
         .drop-zone.drag-active {
             border-color: var(--module-accent) !important;
@@ -352,24 +353,25 @@
         }
         @keyframes laserScan { 0% { top: 0%; } 50% { top: 98%; } 100% { top: 0%; } }
         .drop-zone i.main-icon { font-size: 2.2rem; color: var(--module-accent); margin-bottom: 10px; display: inline-block; pointer-events: none; }
-        .drop-zone p { font-size: 0.88rem; font-weight: 500; pointer-events: none; }
+        .drop-zone p { font-size: 0.9rem; font-weight: 500; pointer-events: none; }
         input[type="file"] { display: none; }
 
         .file-list {
             margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px;
-            max-height: 140px; overflow-y: auto;
+            max-height: 150px; overflow-y: auto;
         }
         .file-item {
             background: var(--input-bg);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            padding: 10px 14px;
+            padding: 11px 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 0.8rem;
+            font-size: 0.82rem;
             font-family: 'JetBrains Mono', monospace;
             gap: 8px;
+            animation: iosSpringReveal 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .file-item span {
             display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis;
@@ -380,32 +382,34 @@
             color: var(--danger); cursor: pointer; padding: 4px; border-radius: 4px;
             flex-shrink: 0; font-size: 0.9rem; transition: transform 0.2s;
         }
-        .file-item i.remove-btn:hover { transform: scale(1.2); }
+        .file-item i.remove-btn:hover { transform: scale(1.25); }
 
+        /* COLORFUL, VIBRANT APPLE HIG PILL BUTTONS */
         .btn {
             width: 100%;
             background: var(--module-accent);
             color: #ffffff;
             border: none;
-            padding: 15px 22px;
+            padding: 16px 24px;
             border-radius: 999px;
-            font-size: 0.92rem;
+            font-size: 0.94rem;
             font-weight: 600;
             letter-spacing: -0.01em;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            box-shadow: 0 4px 18px color-mix(in srgb, var(--module-accent) 32%, transparent);
+            gap: 9px;
+            box-shadow: 0 6px 20px color-mix(in srgb, var(--module-accent) 40%, transparent);
             position: relative;
             overflow: hidden;
             transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
+        .btn i { color: #ffffff; font-size: 0.95rem; }
         .btn:hover {
-            filter: brightness(1.1);
-            transform: translateY(-2px) scale(1.01);
-            box-shadow: 0 6px 22px color-mix(in srgb, var(--module-accent) 42%, transparent);
+            filter: brightness(1.15);
+            transform: translateY(-2px) scale(1.015);
+            box-shadow: 0 10px 28px color-mix(in srgb, var(--module-accent) 55%, transparent);
         }
         .btn:active { transform: scale(0.97); }
 
@@ -416,31 +420,33 @@
             box-shadow: none;
             margin-top: 12px;
         }
-        .btn-alt:hover { background: rgba(255, 255, 255, 0.12); }
+        .btn-alt i { color: var(--module-accent); }
+        .btn-alt:hover { background: rgba(255, 255, 255, 0.15); color: #ffffff; }
 
         .progress-wrapper { display: none; margin-bottom: 14px; }
-        .progress-bar-bg { width: 100%; height: 5px; background: var(--input-bg); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+        .progress-bar-bg { width: 100%; height: 6px; background: var(--input-bg); border-radius: 999px; overflow: hidden; margin-top: 8px; }
         .progress-bar-fill { width: 0%; height: 100%; background: var(--module-accent); border-radius: 999px; transition: width 0.3s ease; }
 
         .pin-input-group input {
             width: 100%; background: var(--input-bg); border: 1.5px solid var(--border-strong); border-radius: var(--radius-sm);
-            padding: 14px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 700;
-            letter-spacing: 6px; text-align: center; outline: none; margin-bottom: 14px;
+            padding: 15px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 700;
+            letter-spacing: 6px; text-align: center; outline: none; margin-bottom: 16px;
             transition: all 0.25s ease;
         }
-        .pin-input-group input:focus { border-color: var(--module-accent); box-shadow: 0 0 14px color-mix(in srgb, var(--module-accent) 30%, transparent); }
+        .pin-input-group input:focus { border-color: var(--module-accent); box-shadow: 0 0 16px color-mix(in srgb, var(--module-accent) 35%, transparent); }
 
         .pin-display-box {
             display: none; background: var(--panel-alt); border: 1px solid var(--border); border-radius: var(--radius-lg);
             padding: 24px; text-align: center; margin-top: 18px; box-shadow: var(--shadow-pop);
+            animation: iosSpringReveal 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .pin-label { font-size: 0.72rem; color: var(--text-tertiary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
         .pin-code {
-            font-family: 'JetBrains Mono', monospace; font-size: 2rem; font-weight: 800;
+            font-family: 'JetBrains Mono', monospace; font-size: 2.1rem; font-weight: 800;
             letter-spacing: 6px; color: var(--module-accent); margin: 8px 0;
         }
 
-        .radial-timer-box { position: relative; width: 56px; height: 56px; margin: 12px auto 0; }
+        .radial-timer-box { position: relative; width: 58px; height: 58px; margin: 12px auto 0; }
         .radial-timer-box svg { transform: rotate(-90deg); }
         .radial-timer-box circle { fill: none; stroke-width: 4; stroke-linecap: round; }
         .timer-track { stroke: var(--border); }
@@ -453,8 +459,8 @@
         .retrieved-files-box { display: none; margin-top: 16px; background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; }
 
         .retrieved-item {
-            display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--panel);
-            border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 6px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;
+            display: flex; justify-content: space-between; align-items: center; padding: 11px 15px; background: var(--panel);
+            border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 6px; font-size: 0.82rem; font-family: 'JetBrains Mono', monospace;
             gap: 8px;
         }
         .retrieved-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
@@ -468,13 +474,13 @@
             border: 1.5px solid var(--apple-purple); border-radius: 50%;
             transform: translate(-50%, -50%); opacity: 0; pointer-events: none;
         }
-        .sonar-active .sonar-ripple { animation: sonarPulse 1.5s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+        .sonar-active .sonar-ripple { animation: sonarPulse 1.4s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
         @keyframes sonarPulse { 0% { width: 10px; height: 10px; opacity: 0.9; } 100% { width: 220px; height: 220px; opacity: 0; border-color: transparent; } }
 
         .oscilloscope { width: 100%; height: 80px; background: var(--input-bg); border-radius: var(--radius-md); border: 1px solid var(--border); display: block; }
         .gauge-box {
             background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-            padding: 12px 14px; margin-bottom: 16px; font-size: 0.82rem; font-weight: 500; color: var(--text-secondary); word-break: break-all;
+            padding: 13px 15px; margin-bottom: 16px; font-size: 0.84rem; font-weight: 500; color: var(--text-secondary); word-break: break-all;
         }
 
         .orbit-container {
@@ -492,18 +498,18 @@
             width: 14px; height: 14px; border-radius: 50%; background: var(--apple-rose);
             box-shadow: 0 0 12px rgba(255, 55, 95, 0.7); transition: transform 0.05s ease-out; z-index: 2;
         }
-        .drop-fly { transform: translateY(-40px) scale(0.7); opacity: 0; transition: all 0.3s ease; }
+        .drop-fly { transform: translateY(-40px) scale(0.7); opacity: 0; transition: all 0.35s ease; }
 
         .feedback-section {
             background: var(--panel); backdrop-filter: blur(40px) saturate(180%);
             -webkit-backdrop-filter: blur(40px) saturate(180%);
-            border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 30px;
+            border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 32px;
             margin-bottom: 28px; box-shadow: var(--shadow-card);
         }
         .feedback-form { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 16px; }
         .feedback-form input, .feedback-form textarea {
             background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-            padding: 13px 16px; color: var(--text-primary); font-size: 16px; outline: none;
+            padding: 13px 15px; color: var(--text-primary); font-size: 16px; outline: none;
             transition: border-color 0.25s ease;
         }
         .feedback-form input:focus, .feedback-form textarea:focus { border-color: var(--module-accent); box-shadow: 0 0 10px color-mix(in srgb, var(--module-accent) 25%, transparent); }
@@ -512,12 +518,12 @@
 
         /* FOOTER PRESERVED EXACTLY AS YOU LIKED */
         footer {
-            border-top: 1px solid var(--border); padding-top: 32px; display: flex; flex-direction: column; gap: 20px;
+            border-top: 1px solid var(--border); padding-top: 30px; display: flex; flex-direction: column; gap: 20px;
         }
         .footer-telemetry {
             display: grid; grid-template-columns: 1fr; gap: 8px; background: var(--panel);
             backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
-            border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 18px;
+            border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px 16px;
             font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text-secondary);
         }
         .tele-item { display: flex; align-items: center; gap: 8px; }
@@ -553,9 +559,9 @@
 
         .footer-bottom {
             display: flex; flex-direction: column; align-items: center; text-align: center;
-            border-top: 1px solid var(--border); padding-top: 16px; gap: 12px;
+            border-top: 1px solid var(--border); padding-top: 18px; gap: 14px;
         }
-        .footer-bottom p { font-size: 0.74rem; color: var(--text-tertiary); }
+        .footer-bottom p { font-size: 0.75rem; color: var(--text-tertiary); }
         .social-links { display: flex; gap: 10px; justify-content: center; }
 
         .social-icon {
@@ -568,7 +574,7 @@
             align-items: center;
             justify-content: center;
             color: var(--text-secondary);
-            font-size: 0.95rem;
+            font-size: 1rem;
             cursor: pointer;
             text-decoration: none;
             position: relative;
@@ -601,7 +607,7 @@
         }
 
         .info-modal {
-            display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75);
+            display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8);
             backdrop-filter: blur(15px); z-index: 1000; align-items: center; justify-content: center; padding: 16px;
         }
         .info-modal.active { display: flex; }
@@ -663,7 +669,7 @@
         <span>Scan QR to instant-download all files. Max 3 downloads allowed; auto-purges after 3rd download.</span>
     </p>
 
-    <div id="module-air" class="module-section active" style="--module-accent: var(--apple-cyan); --module-accent-deep: #0071e3;">
+    <div id="module-air" class="module-section active" style="--module-accent: var(--apple-cyan);">
         <div class="main-container">
             <div class="card">
                 <div class="card-title-row">
@@ -694,11 +700,11 @@
                     <br>
                     <div class="pin-code" id="pinDisplay">------</div>
                     <div class="qr-wrapper"><div id="qrcode"></div></div>
-                    <div style="font-size: 0.72rem; color: var(--module-accent); font-weight: 500; margin-top: 4px;">Limit: 3 Downloads Max</div>
+                    <div style="font-size: 0.72rem; color: var(--apple-cyan); font-weight: 500; margin-top: 4px;">Limit: 3 Downloads Max</div>
                     <div class="radial-timer-box">
-                        <svg width="56" height="56">
-                            <circle class="timer-track" cx="28" cy="28" r="24"></circle>
-                            <circle class="timer-active-ring" id="svgRingTimer" cx="28" cy="28" r="24"></circle>
+                        <svg width="58" height="58">
+                            <circle class="timer-track" cx="29" cy="29" r="25"></circle>
+                            <circle class="timer-active-ring" id="svgRingTimer" cx="29" cy="29" r="25"></circle>
                         </svg>
                         <div class="timer-center-text" id="timerCenterDisplay">02:00</div>
                     </div>
@@ -728,7 +734,7 @@
         </div>
     </div>
 
-    <div id="module-sound" class="module-section" style="--module-accent: var(--apple-purple); --module-accent-deep: #8944ab;">
+    <div id="module-sound" class="module-section" style="--module-accent: var(--apple-purple);">
         <div class="main-container">
             <div class="card">
                 <div class="card-title-row">
@@ -771,7 +777,7 @@
         </div>
     </div>
 
-    <div id="module-gravity" class="module-section" style="--module-accent: var(--apple-rose); --module-accent-deep: #d32047;">
+    <div id="module-gravity" class="module-section" style="--module-accent: var(--apple-rose);">
         <div class="main-container">
             <div class="card">
                 <div class="card-title-row">
@@ -820,7 +826,7 @@
             <input type="text" placeholder="Your Name" required>
             <input type="email" placeholder="Your Email" required>
             <textarea placeholder="Your Message..." required></textarea>
-            <button type="submit" class="btn">Submit Feedback</button>
+            <button type="submit" class="btn" style="background: var(--apple-cyan);"><i class="fa-solid fa-paper-plane"></i> Submit Feedback</button>
         </form>
     </div>
 
@@ -850,7 +856,7 @@
 
         <div class="footer-grid">
             <div class="footer-col">
-                <h4>Air share pro</h4>
+                <h4><i class="fa-solid fa-satellite-dish" style="color:var(--apple-cyan);"></i> Air share pro</h4>
                 <p>A native-grade peer-to-peer browser data conduit engineered for instant, self-purging file exchanges across acoustic, kinetic, and QR channels.</p>
                 <a href="https://github.com/vikrambhardwaj-28/air-share-pro" target="_blank" class="git-pill">
                     <i class="fa-brands fa-github"></i><span>air-share-pro</span><span style="color:var(--text-secondary); margin-left:4px;">★ Open Source</span>
@@ -858,31 +864,31 @@
             </div>
 
             <div class="footer-col">
-                <h4>Protocol Modes</h4>
+                <h4><i class="fa-solid fa-layer-group" style="color:var(--apple-cyan);"></i> Protocol Modes</h4>
                 <ul>
-                    <li><a href="javascript:void(0)" onclick="switchModule('air')">AirShare (PIN/QR)</a></li>
-                    <li><a href="javascript:void(0)" onclick="switchModule('sound')">SoundWave (Audio)</a></li>
-                    <li><a href="javascript:void(0)" onclick="switchModule('gravity')">GravityDrop (Kinetic)</a></li>
+                    <li><a href="javascript:void(0)" onclick="switchModule('air')"><i class="fa-solid fa-share-nodes"></i> AirShare (PIN/QR)</a></li>
+                    <li><a href="javascript:void(0)" onclick="switchModule('sound')"><i class="fa-solid fa-wave-square"></i> SoundWave (Audio)</a></li>
+                    <li><a href="javascript:void(0)" onclick="switchModule('gravity')"><i class="fa-solid fa-mobile-screen"></i> GravityDrop (Kinetic)</a></li>
                 </ul>
             </div>
 
             <div class="footer-col">
-                <h4>Privacy Standards</h4>
+                <h4><i class="fa-solid fa-shield-halved" style="color:var(--apple-cyan);"></i> Privacy Standards</h4>
                 <ul>
-                    <li><a href="javascript:void(0)" onclick="openModal('secModal')">Zero DB Storage</a></li>
-                    <li><a href="javascript:void(0)" onclick="openModal('ttlModal')">60s/120s TTL Lifespan</a></li>
-                    <li><a href="javascript:void(0)">3-Download Auto-Purge</a></li>
-                    <li><a href="javascript:void(0)">No Accounts Required</a></li>
+                    <li><a href="javascript:void(0)" onclick="openModal('secModal')"><i class="fa-solid fa-microchip"></i> Zero DB Storage</a></li>
+                    <li><a href="javascript:void(0)" onclick="openModal('ttlModal')"><i class="fa-solid fa-stopwatch"></i> 60s/120s TTL Lifespan</a></li>
+                    <li><a href="javascript:void(0)"><i class="fa-solid fa-recycle"></i> 3-Download Auto-Purge</a></li>
+                    <li><a href="javascript:void(0)"><i class="fa-solid fa-user-slash"></i> No Accounts Required</a></li>
                 </ul>
             </div>
 
             <div class="footer-col">
-                <h4>Architecture</h4>
+                <h4><i class="fa-solid fa-code-branch" style="color:var(--apple-cyan);"></i> Architecture</h4>
                 <ul>
-                    <li><a href="javascript:void(0)">Socket.io v4 Edge</a></li>
-                    <li><a href="javascript:void(0)">Stream Buffer Pipe</a></li>
-                    <li><a href="javascript:void(0)">Web Audio API</a></li>
-                    <li><a href="javascript:void(0)">W3C DeviceMotion</a></li>
+                    <li><a href="javascript:void(0)"><i class="fa-solid fa-bolt"></i> Socket.io v4 Edge</a></li>
+                    <li><a href="javascript:void(0)"><i class="fa-solid fa-file-shield"></i> Stream Buffer Pipe</a></li>
+                    <li><a href="javascript:void(0)"><i class="fa-solid fa-cube"></i> Web Audio API</a></li>
+                    <li><a href="javascript:void(0)"><i class="fa-solid fa-compass"></i> W3C DeviceMotion</a></li>
                 </ul>
             </div>
         </div>
@@ -901,7 +907,7 @@
     <div id="secModal" class="info-modal" onclick="if(event.target === this) closeModal('secModal')">
         <div class="modal-card">
             <div class="modal-header">
-                <h3>Zero Database Policy</h3>
+                <h3><i class="fa-solid fa-shield-halved" style="color:var(--apple-cyan);"></i> Zero Database Policy</h3>
                 <i class="fa-solid fa-xmark close-btn" onclick="closeModal('secModal')"></i>
             </div>
             <div class="modal-body">
@@ -915,14 +921,14 @@
     <div id="ttlModal" class="info-modal" onclick="if(event.target === this) closeModal('ttlModal')">
         <div class="modal-card">
             <div class="modal-header">
-                <h3>Auto-Purge Protocols</h3>
+                <h3><i class="fa-solid fa-stopwatch" style="color:var(--apple-rose);"></i> Auto-Purge Protocols</h3>
                 <i class="fa-solid fa-xmark close-btn" onclick="closeModal('ttlModal')"></i>
             </div>
             <div class="modal-body">
                 <p><strong>AirShare Mode:</strong> 120-second lifespan or immediate destruction after 3 batch retrievals.</p>
                 <p><strong>SoundWave &amp; GravityDrop:</strong> Hard ceiling of 60 seconds ephemeral lifespan.</p>
             </div>
-            <button class="btn" onclick="closeModal('ttlModal')">Understood</button>
+            <button class="btn" style="background:var(--apple-rose);" onclick="closeModal('ttlModal')">Understood</button>
         </div>
     </div>
 
@@ -1139,7 +1145,7 @@
                     const latencyEl = document.getElementById('latencyDisplay');
                     if (latencyEl) {
                         latencyEl.innerText = `${avg} ms`;
-                        latencyEl.style.color = avg < 160 ? '#30d158' : 'var(--accent-rose)';
+                        latencyEl.style.color = avg < 160 ? '#30d158' : 'var(--apple-rose)';
                     }
                 });
         }
@@ -1208,7 +1214,7 @@
             selectedFiles.forEach((f, idx) => {
                 list.innerHTML += `
                     <div class="file-item">
-                        <span><i class="fa-regular fa-file" style="color:var(--accent-cyan);"></i>${f.name}</span>
+                        <span><i class="fa-regular fa-file" style="color:var(--apple-cyan);"></i>${f.name}</span>
                         <i class="fa-solid fa-xmark remove-btn" onclick="selectedFiles.splice(${idx},1);renderAirList();"></i>
                     </div>
                 `;
@@ -1359,7 +1365,7 @@
             sndFiles.forEach((f, idx) => {
                 list.innerHTML += `
                     <div class="file-item">
-                        <span><i class="fa-regular fa-file" style="color:var(--accent-purple);"></i>${f.name}</span>
+                        <span><i class="fa-regular fa-file" style="color:var(--apple-purple);"></i>${f.name}</span>
                         <i class="fa-solid fa-xmark remove-btn" onclick="sndFiles.splice(${idx},1);renderSoundList();"></i>
                     </div>
                 `;
@@ -1380,7 +1386,7 @@
             return { baseFreq, endFreq, waveType: waves[absHash % waves.length] };
         }
 
-        /* FAST & OPTIMIZED SOUNDWAVE EMITTER */
+        /* LIGHTNING FAST SOUNDWAVE EMITTER */
         function emitSound() {
             if (!sndFiles.length) return alert('Select files first');
             const formData = new FormData();
@@ -1521,7 +1527,7 @@
             grvFiles.forEach((f, idx) => {
                 list.innerHTML += `
                     <div class="file-item">
-                        <span><i class="fa-regular fa-file" style="color:var(--accent-rose);"></i>${f.name}</span>
+                        <span><i class="fa-regular fa-file" style="color:var(--apple-rose);"></i>${f.name}</span>
                         <i class="fa-solid fa-xmark remove-btn" onclick="grvFiles.splice(${idx},1);renderGravityList();"></i>
                     </div>
                 `;
@@ -1589,7 +1595,6 @@
             const statusBox = document.getElementById('tiltAngleDisplay');
             if (statusBox) statusBox.innerText = "Fast Sensors Armed: Quick bump or tap anywhere!";
 
-            // Instant click/tap trigger for immediate testing without physical phone shaking
             window.addEventListener('click', () => {
                 if (grvFiles.length > 0 && !isDropped) {
                     triggerGravityDrop();
