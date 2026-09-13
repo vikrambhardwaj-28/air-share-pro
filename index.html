@@ -11,8 +11,13 @@
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://air-share.markiv.site/">
 
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23020617'/%3E%3Crect x='1' y='1' width='62' height='62' rx='15' fill='none' stroke='%2300f2fe' stroke-width='2' stroke-opacity='0.4'/%3E%3Cg transform='translate(14, 14)'%3E%3Crect width='16' height='16' rx='4' fill='%2300f2fe'/%3E%3Crect x='20' width='16' height='16' rx='4' fill='%238b5cf6'/%3E%3Crect y='20' width='16' height='16' rx='4' fill='%23f43f5e'/%3E%3Crect x='20' y='20' width='16' height='16' rx='4' fill='%231e293b'/%3E%3C/g%3E%3C/svg%3E">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%23020617'/%3E%3Cg transform='translate(42, 42)'%3E%3Crect width='44' height='44' rx='10' fill='%2300f2fe'/%3E%3Crect x='52' width='44' height='44' rx='10' fill='%238b5cf6'/%3E%3Crect y='52' width='44' height='44' rx='10' fill='%23f43f5e'/%3E%3Crect x='52' y='52' width='44' height='44' rx='10' fill='%231e293b'/%3E%3C/g%3E%3C/svg%3E">
+    <!-- Fixed Favicon Meta Tags for Browser Tabs & Google Search Indexing -->
+    <link rel="icon" type="image/svg+xml" href="https://air-share.markiv.site/favicon.svg">
+    <link rel="shortcut icon" href="https://air-share.markiv.site/favicon.ico">
+    <link rel="apple-touch-icon" href="https://air-share.markiv.site/apple-touch-icon.png">
+
+    <!-- Fallback Embedded Clean Vector Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='12' height='12' rx='3' fill='%234285f4'/%3E%3Crect x='18' y='2' width='12' height='12' rx='3' fill='%23ea4335'/%3E%3Crect x='2' y='18' width='12' height='12' rx='3' fill='%23fbbc05'/%3E%3Crect x='18' y='18' width='12' height='12' rx='3' fill='%2334a853'/%3E%3C/svg%3E">
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://air-share.markiv.site/">
@@ -171,7 +176,6 @@
 
         a { color: inherit; text-decoration: none; }
 
-        /* PERFECT RESPONSIVE NAVBAR - NO OVERLAPPING */
         .navbar {
             display: flex;
             justify-content: space-between;
@@ -384,7 +388,6 @@
         }
         .file-item i.remove-btn:hover { transform: scale(1.25); }
 
-        /* COLORFUL, VIBRANT APPLE HIG PILL BUTTONS */
         .btn {
             width: 100%;
             background: var(--module-accent);
@@ -516,7 +519,6 @@
         .feedback-form textarea { resize: none; height: 80px; }
         .feedback-form button { padding: 14px; }
 
-        /* FOOTER PRESERVED EXACTLY AS YOU LIKED */
         footer {
             border-top: 1px solid var(--border); padding-top: 30px; display: flex; flex-direction: column; gap: 20px;
         }
@@ -925,8 +927,8 @@
                 <i class="fa-solid fa-xmark close-btn" onclick="closeModal('ttlModal')"></i>
             </div>
             <div class="modal-body">
-                <p><strong>AirShare Mode:</strong> 120-second lifespan or immediate destruction after 3 batch retrievals.</p>
-                <p><strong>SoundWave &amp; GravityDrop:</strong> Hard ceiling of 60 seconds ephemeral lifespan.</p>
+                <p><strong>AirShare Mode:</strong> Active for 120 seconds or terminated immediately upon 3 batch downloads.</p>
+                <p><strong>SoundWave &amp; GravityDrop:</strong> Hard ceiling of 60 seconds (1 minute) permanent self-destruct cycle from staging time.</p>
             </div>
             <button class="btn" style="background:var(--apple-rose);" onclick="closeModal('ttlModal')">Understood</button>
         </div>
@@ -1386,7 +1388,6 @@
             return { baseFreq, endFreq, waveType: waves[absHash % waves.length] };
         }
 
-        /* LIGHTNING FAST SOUNDWAVE EMITTER */
         function emitSound() {
             if (!sndFiles.length) return alert('Select files first');
             const formData = new FormData();
@@ -1590,7 +1591,6 @@
             }
         }
 
-        /* LIGHTNING-FAST SENSOR & TOUCH DROP TRIGGER */
         function initSensors() {
             const statusBox = document.getElementById('tiltAngleDisplay');
             if (statusBox) statusBox.innerText = "Fast Sensors Armed: Quick bump or tap anywhere!";
