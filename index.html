@@ -18,7 +18,6 @@
     <link rel="shortcut icon" href="https://air-share.markiv.site/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="https://air-share.markiv.site/apple-touch-icon.png">
     
-    <!-- Fallback Embedded Clean Vector Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='12' height='12' rx='3' fill='%234285f4'/%3E%3Crect x='18' y='2' width='12' height='12' rx='3' fill='%23ea4335'/%3E%3Crect x='2' y='18' width='12' height='12' rx='3' fill='%23fbbc05'/%3E%3Crect x='18' y='18' width='12' height='12' rx='3' fill='%2334a853'/%3E%3C/svg%3E">
 
     <meta property="og:type" content="website">
@@ -157,17 +156,47 @@
         .quantum-warp {
             position: fixed;
             inset: 0;
-            background: radial-gradient(circle, color-mix(in srgb, var(--module-accent) 40%, transparent) 0%, transparent 80%);
+            background: radial-gradient(circle, color-mix(in srgb, var(--module-accent) 70%, transparent) 0%, rgba(0, 0, 0, 0.95) 80%);
             pointer-events: none;
-            z-index: 99;
+            z-index: 9999;
             opacity: 0;
-            transform: scale(0.5);
-            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            transform: scale(0.1);
+            transition: all 0.5s cubic-bezier(0.1, 1.2, 0.3, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .quantum-warp.warp-active {
             opacity: 1;
-            transform: scale(1.6);
+            transform: scale(1);
         }
+        .quantum-core-container {
+            position: relative;
+            width: 260px; height: 260px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .quantum-ring-outer {
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
+            border: 4px dashed var(--module-accent);
+            animation: spinFast 0.8s linear infinite, pulseGlow 0.4s ease-in-out infinite alternate;
+            box-shadow: 0 0 60px var(--module-accent), inset 0 0 40px var(--module-accent);
+        }
+        .quantum-ring-inner {
+            position: absolute; width: 70%; height: 70%; border-radius: 50%;
+            border: 3px solid #ffffff;
+            animation: spinReverse 1.2s linear infinite;
+            box-shadow: 0 0 30px #ffffff;
+        }
+        .quantum-core-center {
+            width: 80px; height: 80px; border-radius: 50%;
+            background: #ffffff;
+            box-shadow: 0 0 80px 20px var(--module-accent);
+            animation: coreBlast 0.5s ease-in-out infinite alternate;
+        }
+        @keyframes spinFast { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes spinReverse { 0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); } }
+        @keyframes pulseGlow { from { transform: scale(0.9); opacity: 0.8; } to { transform: scale(1.15); opacity: 1; } }
+        @keyframes coreBlast { from { transform: scale(0.7); filter: blur(5px); } to { transform: scale(1.3); filter: blur(0px); } }
 
         nav, .wide-nav-bar, p.mode-description, .module-section, .feedback-section, footer {
             position: relative;
@@ -639,7 +668,15 @@
 
     <canvas id="bgCanvas"></canvas>
     <div id="cursorGlow"></div>
-    <div id="quantumWarp" class="quantum-warp"></div>
+    
+    <!-- KHATARNAK CYBER-POWER QUANTUM WARP BLAST ANIMATION -->
+    <div id="quantumWarp" class="quantum-warp">
+        <div class="quantum-core-container">
+            <div class="quantum-ring-outer"></div>
+            <div class="quantum-ring-inner"></div>
+            <div class="quantum-core-center"></div>
+        </div>
+    </div>
 
     <nav class="navbar">
         <a href="index.html" class="brand-link">
@@ -1017,7 +1054,7 @@
             const warp = document.getElementById('quantumWarp');
             if (warp) {
                 warp.classList.add('warp-active');
-                setTimeout(() => warp.classList.remove('warp-active'), 450);
+                setTimeout(() => warp.classList.remove('warp-active'), 800);
             }
         }
 
@@ -1560,7 +1597,8 @@
                     if (data.success && socket) {
                         socket.emit('gravity_file_transfer', {
                             pin: data.pin,
-                            files: data.files
+                            files: data.files,
+                            timestamp: Date.now()
                         });
                         if (statusBox) statusBox.innerText = `✅ Payload Dropped! Auto-purges in 60s.`;
                     }
@@ -1670,4 +1708,3 @@
     </script>
 </body>
 </html>
-<link rel="icon" href="/favicon.ico">
