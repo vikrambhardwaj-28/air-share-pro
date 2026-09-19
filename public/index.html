@@ -1,0 +1,1781 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <title>Air share pro — High-Speed Browser-to-Browser Signal Conduit</title>
+    <meta name="description" content="Instant browser-to-browser multi-file transfer using Acoustic Sound Waves and PIN/QR codes. Fast, secure, and ephemeral file sharing.">
+    <meta name="author" content="Vikram Bhardwaj">
+    <link rel="canonical" href="https://air-share.markiv.site/">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='12' height='12' rx='3' fill='%234285f4'/%3E%3Crect x='18' y='2' width='12' height='12' rx='3' fill='%23ea4335'/%3E%3Crect x='2' y='18' width='12' height='12' rx='3' fill='%23fbbc05'/%3E%3Crect x='18' y='18' width='12' height='12' rx='3' fill='%2334a853'/%3E%3C/svg%3E">
+
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+    <style>
+        :root {
+            --bg-wallpaper: url('https://images.wallpapersden.com/image/download/bright-gradient-0011_bWlubmqUmZqaraWkpJRsa21lrWloZ2U.jpg');
+            --navbar-bg: rgba(18, 18, 20, 0.55);
+            --panel: rgba(22, 22, 26, 0.48);
+            --panel-alt: rgba(30, 30, 36, 0.55);
+            --border: rgba(255, 255, 255, 0.12);
+            --border-strong: rgba(255, 255, 255, 0.22);
+            --text-primary: #f5f5f7;
+            --text-secondary: #cbd5e1;
+            --text-tertiary: #94a3b8;
+            --input-bg: rgba(10, 10, 14, 0.45);
+            --apple-blue: #0071e3;
+            --apple-cyan: #2997ff;
+            --apple-purple: #af52de;
+            --apple-rose: #ff375f;
+            --success: #30d158;
+            --danger: #ff453a;
+            --module-accent: var(--apple-cyan);
+            --radius-sm: 14px;
+            --radius-md: 22px;
+            --radius-lg: 32px;
+            --shadow-card: 0 20px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            --shadow-pop: 0 30px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+            --qr-bg: #ffffff;
+            --qr-border: rgba(255, 255, 255, 0.25);
+            --particle-color: #2997ff;
+        }
+
+        /* HIGH-TRANSPARENCY GLASS LIGHT THEME (PURA WALLPAPER 100% VISIBLE) */
+        [data-theme="light"] {
+            --navbar-bg: rgba(255, 255, 255, 0.38);
+            --panel: rgba(255, 255, 255, 0.32);
+            --panel-alt: rgba(255, 255, 255, 0.42);
+            --border: rgba(255, 255, 255, 0.45);
+            --border-strong: rgba(255, 255, 255, 0.65);
+            --text-primary: #0f172a;
+            --text-secondary: #1e293b;
+            --text-tertiary: #475569;
+            --input-bg: rgba(255, 255, 255, 0.45);
+            --apple-cyan: #0071e3;
+            --module-accent: #0071e3;
+            --shadow-card: 0 16px 36px rgba(0, 0, 0, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+            --shadow-pop: 0 24px 48px rgba(0, 0, 0, 0.25), inset 0 1px 2px rgba(255, 255, 255, 0.8);
+            --qr-bg: rgba(255, 255, 255, 0.95);
+            --qr-border: rgba(255, 255, 255, 0.8);
+            --particle-color: #38bdf8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            max-width: 100vw;
+            overflow-x: hidden;
+            touch-action: manipulation;
+        }
+
+        body {
+            background-color: #05070d;
+            background-image: var(--bg-wallpaper);
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 14px 40px;
+            position: relative;
+            letter-spacing: -0.01em;
+            transition: color 0.3s ease;
+        }
+
+        #bgCanvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.22;
+        }
+
+        #cursorGlow {
+            position: fixed;
+            width: 400px; height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, color-mix(in srgb, var(--module-accent) 24%, transparent) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+            transform: translate(-50%, -50%);
+            filter: blur(60px);
+            display: none;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+            #cursorGlow { display: block; }
+        }
+
+        /* Quantum Warp Animation */
+        .quantum-warp {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle, color-mix(in srgb, var(--module-accent) 70%, transparent) 0%, rgba(0, 0, 0, 0.95) 80%);
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0;
+            transform: scale(0.1);
+            transition: all 0.5s cubic-bezier(0.1, 1.2, 0.3, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .quantum-warp.warp-active {
+            opacity: 1;
+            transform: scale(1);
+        }
+        .quantum-core-container {
+            position: relative;
+            width: 260px; height: 260px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .quantum-ring-outer {
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
+            border: 4px dashed var(--module-accent);
+            animation: spinFast 0.8s linear infinite, pulseGlow 0.4s ease-in-out infinite alternate;
+            box-shadow: 0 0 60px var(--module-accent), inset 0 0 40px var(--module-accent);
+        }
+        .quantum-ring-inner {
+            position: absolute; width: 70%; height: 70%; border-radius: 50%;
+            border: 3px solid #ffffff;
+            animation: spinReverse 1.2s linear infinite;
+            box-shadow: 0 0 30px #ffffff;
+        }
+        .quantum-core-center {
+            width: 80px; height: 80px; border-radius: 50%;
+            background: #ffffff;
+            box-shadow: 0 0 80px 20px var(--module-accent);
+            animation: coreBlast 0.5s ease-in-out infinite alternate;
+        }
+        @keyframes spinFast { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes spinReverse { 0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); } }
+        @keyframes pulseGlow { from { transform: scale(0.9); opacity: 0.8; } to { transform: scale(1.15); opacity: 1; } }
+        @keyframes coreBlast { from { transform: scale(0.7); filter: blur(5px); } to { transform: scale(1.3); filter: blur(0px); } }
+
+        nav, .wide-nav-bar, p.mode-description, .module-section, .feedback-section, footer {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 920px;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        /* Sleek Translucent Navbar */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 18px;
+            background: var(--navbar-bg);
+            backdrop-filter: blur(28px) saturate(180%);
+            -webkit-backdrop-filter: blur(28px) saturate(180%);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            margin-bottom: 18px;
+            box-shadow: var(--shadow-card);
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .brand-link { 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
+            min-width: 0; 
+            flex: 1; 
+            overflow: hidden;
+        }
+        
+        .brand-mark {
+            width: 36px; height: 36px; border-radius: 11px; background: rgba(0, 0, 0, 0.75);
+            border: 1px solid rgba(0, 242, 254, 0.5); display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; box-shadow: 0 4px 14px rgba(0, 242, 254, 0.25);
+        }
+        [data-theme="light"] .brand-mark {
+            background: rgba(15, 23, 42, 0.85);
+            border-color: rgba(0, 113, 227, 0.5);
+            box-shadow: 0 4px 14px rgba(0, 113, 227, 0.25);
+        }
+
+        .brand-text { line-height: 1.2; min-width: 0; overflow: hidden; }
+        .brand-name {
+            font-size: 0.98rem; font-weight: 700; letter-spacing: -0.02em;
+            color: var(--text-primary);
+            display: flex; align-items: center; gap: 6px; white-space: nowrap;
+        }
+        .apple-badge {
+            font-size: 0.52rem; font-weight: 700; padding: 2px 7px;
+            border-radius: 999px; background: rgba(41, 151, 255, 0.18); color: var(--apple-cyan);
+            border: 1px solid rgba(41, 151, 255, 0.35); text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        [data-theme="light"] .apple-badge {
+            background: rgba(0, 113, 227, 0.15);
+            border-color: rgba(0, 113, 227, 0.35);
+        }
+        .brand-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; font-weight: 600; color: var(--text-tertiary); white-space: nowrap; }
+
+        .navbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .status-pill {
+            display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+            background: var(--panel-alt); border: 1px solid var(--border); font-size: 0.72rem; font-weight: 600;
+            color: var(--text-secondary); white-space: nowrap;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+        .status-dot {
+            width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+            box-shadow: 0 0 10px rgba(48, 209, 88, 0.7); animation: pulseDot 2s infinite ease-in-out;
+        }
+        @keyframes pulseDot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
+
+        .disconnect-btn {
+            background: rgba(255, 69, 58, 0.2);
+            border: 1px solid rgba(255, 69, 58, 0.4);
+            color: var(--danger);
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+        .disconnect-btn:hover {
+            background: rgba(255, 69, 58, 0.3);
+            transform: scale(1.02);
+        }
+
+        .theme-btn {
+            background: var(--panel-alt); border: 1px solid var(--border); color: var(--text-primary);
+            width: 34px; height: 34px; border-radius: 50%; cursor: pointer; display: flex;
+            align-items: center; justify-content: center; font-size: 0.85rem; transition: transform 0.2s ease, background 0.2s ease;
+            flex-shrink: 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+        .theme-btn:hover { transform: scale(1.08); }
+
+        .main-container {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+            gap: 18px;
+            width: 100%;
+        }
+
+        /* Highly Translucent Frosted Glass Card */
+        .card {
+            background: var(--panel);
+            backdrop-filter: blur(28px) saturate(180%);
+            -webkit-backdrop-filter: blur(28px) saturate(180%);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            position: relative;
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease, background 0.3s ease;
+        }
+        .card:hover { 
+            border-color: var(--border-strong); 
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-pop);
+        }
+
+        .card-title-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+        .card-icon-chip {
+            width: 40px; height: 40px; border-radius: 13px;
+            background: color-mix(in srgb, var(--module-accent) 20%, transparent);
+            border: 1px solid color-mix(in srgb, var(--module-accent) 35%, transparent);
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            box-shadow: 0 4px 12px color-mix(in srgb, var(--module-accent) 22%, transparent);
+        }
+        .card-icon-chip i { color: var(--module-accent); font-size: 1rem; }
+        .card-title { 
+            font-size: 1.08rem; 
+            font-weight: 700; 
+            letter-spacing: -0.015em; 
+            color: var(--text-primary);
+        }
+        .card-desc { 
+            font-size: 0.82rem; 
+            color: var(--text-secondary); 
+            margin-bottom: 18px; 
+            line-height: 1.55; 
+            font-weight: 500;
+        }
+
+        .drop-zone {
+            border: 1.5px dashed var(--border-strong);
+            border-radius: var(--radius-md);
+            padding: 24px 14px;
+            text-align: center;
+            cursor: pointer;
+            background: var(--input-bg);
+            margin-bottom: 16px;
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .drop-zone:hover {
+            border-color: var(--module-accent);
+            background: color-mix(in srgb, var(--module-accent) 15%, var(--input-bg));
+            transform: scale(1.01);
+        }
+        .laser-beam {
+            position: absolute; left: 0; top: -100%; width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--module-accent), transparent);
+            opacity: 0; pointer-events: none;
+        }
+        .drop-zone:hover .laser-beam {
+            opacity: 1; animation: laserScan 2s ease-in-out infinite;
+        }
+        @keyframes laserScan { 0% { top: 0%; } 50% { top: 98%; } 100% { top: 0%; } }
+        .drop-zone i.main-icon { font-size: 2.1rem; color: var(--module-accent); margin-bottom: 8px; display: inline-block; pointer-events: none; }
+        .drop-zone p { font-size: 0.86rem; font-weight: 600; color: var(--text-primary); pointer-events: none; }
+
+        .btn {
+            width: 100%;
+            background: var(--module-accent);
+            color: #ffffff;
+            border: none;
+            padding: 13px 20px;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 6px 20px color-mix(in srgb, var(--module-accent) 35%, transparent);
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .btn:hover {
+            filter: brightness(1.12);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px color-mix(in srgb, var(--module-accent) 50%, transparent);
+        }
+        .btn:active { transform: scale(0.97); }
+
+        .pin-code-huge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: 6px;
+            color: var(--apple-cyan);
+            background: var(--input-bg);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            text-align: center;
+            margin: 14px 0;
+            user-select: all;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        }
+
+        .qr-wrapper {
+            background: var(--qr-bg);
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            display: inline-block;
+            margin: 0 auto;
+            border: 1px solid var(--qr-border);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        }
+
+        .pin-input-group input {
+            width: 100%; background: var(--input-bg); border: 1.5px solid var(--border-strong); border-radius: var(--radius-sm);
+            padding: 13px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 1.25rem; font-weight: 800;
+            letter-spacing: 5px; text-align: center; outline: none; margin-bottom: 12px;
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+            transition: all 0.25s ease;
+        }
+        .pin-input-group input:focus { 
+            border-color: var(--module-accent); 
+            box-shadow: 0 0 16px color-mix(in srgb, var(--module-accent) 30%, transparent), inset 0 1px 2px rgba(0, 0, 0, 0.08); 
+        }
+
+        /* Progress Dashboard */
+        @keyframes progress-stripes {
+            from { background-position: 1.5rem 0; }
+            to { background-position: 0 0; }
+        }
+        .progress-animated {
+            background-image: linear-gradient(
+                45deg,
+                rgba(255, 255, 255, 0.25) 25%,
+                transparent 25%,
+                transparent 50%,
+                rgba(255, 255, 255, 0.25) 50%,
+                rgba(255, 255, 255, 0.25) 75%,
+                transparent 75%,
+                transparent
+            );
+            background-size: 1.5rem 1.5rem;
+            animation: progress-stripes 1s linear infinite;
+        }
+
+        .progress-card {
+            background: var(--panel);
+            backdrop-filter: blur(28px) saturate(180%);
+            -webkit-backdrop-filter: blur(28px) saturate(180%);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px 20px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow-card);
+        }
+
+        .oscilloscope {
+            width: 100%;
+            height: 44px;
+            background: var(--input-bg);
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-strong);
+            display: none;
+            margin-top: 10px;
+        }
+
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 11px 14px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-top: 8px;
+            font-size: 0.82rem;
+            font-family: 'JetBrains Mono', monospace;
+            gap: 10px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+
+        .clipboard-box textarea {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            padding: 13px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.86rem;
+            outline: none;
+            resize: none;
+            height: 115px;
+            margin-top: 8px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+            transition: border-color 0.2s ease;
+        }
+        .clipboard-box textarea:focus { border-color: var(--apple-cyan); }
+
+        /* Pairing Cards Collapse */
+        #pairingSection {
+            display: grid;
+        }
+        #pairingSection.conduit-hidden {
+            display: none !important;
+        }
+
+        /* Niche wale cards locked & blurred initially */
+        #transferSection {
+            position: relative;
+            filter: blur(14px);
+            opacity: 0.35;
+            pointer-events: none;
+            user-select: none;
+            transform: scale(0.98);
+            transition: filter 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                        opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Room connect hone par unblur with animation */
+        #transferSection.conduit-unblurred {
+            filter: blur(0px);
+            opacity: 1;
+            pointer-events: auto;
+            user-select: auto;
+            transform: scale(1);
+        }
+
+        .transfer-lock-banner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            background: var(--navbar-bg);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            border: 1px solid var(--border-strong);
+            padding: 12px 22px;
+            border-radius: 999px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            color: var(--apple-cyan);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: var(--shadow-pop);
+            pointer-events: none;
+            white-space: nowrap;
+            max-width: 90%;
+            justify-content: center;
+        }
+        #transferSection.conduit-unblurred .transfer-lock-banner {
+            display: none !important;
+        }
+
+        /* HOW IT WORKS & FEEDBACK FORM */
+        .how-it-works-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-top: 14px;
+        }
+        .step-box {
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            transition: transform 0.25s ease;
+        }
+        .step-box:hover {
+            transform: translateY(-2px);
+        }
+        .step-num {
+            width: 28px; height: 28px; border-radius: 50%;
+            background: color-mix(in srgb, var(--module-accent) 20%, transparent);
+            border: 1px solid var(--module-accent);
+            color: var(--module-accent);
+            font-size: 0.78rem; font-weight: 800; font-family: 'JetBrains Mono', monospace;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .step-title {
+            font-size: 0.95rem; font-weight: 700; color: var(--text-primary);
+        }
+        .step-desc {
+            font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;
+        }
+
+        .feedback-card {
+            background: var(--panel);
+            backdrop-filter: blur(28px) saturate(180%);
+            -webkit-backdrop-filter: blur(28px) saturate(180%);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            position: relative;
+            box-shadow: var(--shadow-card);
+            margin-bottom: 24px;
+            width: 100%;
+        }
+
+        .feedback-input {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1.5px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            padding: 12px 16px;
+            color: var(--text-primary);
+            font-size: 0.88rem;
+            outline: none;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+            transition: all 0.25s ease;
+        }
+        .feedback-input:focus {
+            border-color: var(--module-accent);
+            box-shadow: 0 0 16px color-mix(in srgb, var(--module-accent) 25%, transparent);
+        }
+        .feedback-textarea {
+            min-height: 110px;
+            resize: vertical;
+        }
+
+        footer {
+            border-top: 1px solid var(--border); padding-top: 24px; display: flex; flex-direction: column; gap: 16px;
+        }
+        .footer-telemetry {
+            display: grid; grid-template-columns: 1fr; gap: 8px; background: var(--panel);
+            backdrop-filter: blur(28px) saturate(180%); -webkit-backdrop-filter: blur(28px) saturate(180%);
+            border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px 16px;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text-secondary);
+            box-shadow: var(--shadow-card);
+        }
+        .tele-item { display: flex; align-items: center; gap: 8px; }
+        .tele-item i { color: var(--text-tertiary); }
+        .tele-item strong { color: var(--text-primary); font-weight: 700; }
+
+        .footer-bottom {
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+            border-top: 1px solid var(--border); padding-top: 16px; gap: 12px;
+        }
+        .footer-bottom p { font-size: 0.74rem; color: var(--text-tertiary); font-weight: 500; }
+        .footer-bottom p strong { color: var(--text-secondary); }
+        .social-links { display: flex; gap: 10px; justify-content: center; }
+
+        .social-icon {
+            width: 36px; height: 36px; border-radius: 50%; background: var(--panel-alt);
+            border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+            color: var(--text-secondary); font-size: 0.95rem; cursor: pointer; text-decoration: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+            transition: all 0.2s ease;
+        }
+        .social-icon:hover { transform: translateY(-2px); color: var(--text-primary); }
+        .social-icon.instagram:hover { background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285AEB 90%); border-color: transparent; color: #fff; }
+        .social-icon.facebook:hover { background: #1877f2; border-color: #1877f2; color: #fff; }
+        .social-icon.github:hover { background: #0f172a; border-color: #334155; color: #fff; }
+        .social-icon.email:hover { background: #ea4335; border-color: #ea4335; color: #fff; }
+
+        @media (min-width: 600px) {
+            .footer-telemetry { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+            .footer-bottom { flex-direction: row; justify-content: space-between; text-align: left; }
+        }
+
+        @media (max-width: 640px) {
+            .brand-name { font-size: 0.9rem; }
+            .brand-sub { display: none; }
+            .navbar { padding: 10px 14px; margin-bottom: 14px; }
+            .card { padding: 18px; border-radius: 22px; }
+            .feedback-card { padding: 18px; border-radius: 22px; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="bgCanvas"></canvas>
+    <div id="cursorGlow"></div>
+    
+    <!-- Quantum Warp Animation -->
+    <div id="quantumWarp" class="quantum-warp">
+        <div class="quantum-core-container">
+            <div class="quantum-ring-outer"></div>
+            <div class="quantum-ring-inner"></div>
+            <div class="quantum-core-center"></div>
+        </div>
+    </div>
+
+    <!-- Navigation Header -->
+    <nav class="navbar">
+        <a href="/" class="brand-link">
+            <div class="brand-mark">
+                <svg viewBox="0 0 32 32" width="22" height="22">
+                    <rect x="2" y="2" width="12" height="12" rx="3" fill="#4285f4"/>
+                    <rect x="18" y="2" width="12" height="12" rx="3" fill="#ea4335"/>
+                    <rect x="2" y="18" width="12" height="12" rx="3" fill="#fbbc05"/>
+                    <rect x="18" y="18" width="12" height="12" rx="3" fill="#34a853"/>
+                </svg>
+            </div>
+            <div class="brand-text">
+                <div class="brand-name">Air share pro <span class="apple-badge">WebRTC</span></div>
+                <div class="brand-sub">air-share.markiv.site</div>
+            </div>
+        </a>
+        <div class="navbar-right">
+            <div class="status-pill">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusLabel" class="status-label">Initializing</span>
+            </div>
+            <button id="disconnectBtn" class="disconnect-btn" onclick="disconnectConduit()" title="Disconnect Peer"><i class="fa-solid fa-link-slash"></i> Disconnect</button>
+            <button id="themeToggleBtn" class="theme-btn" onclick="toggleTheme()" aria-label="Toggle Theme"><i class="fa-solid fa-moon"></i></button>
+        </div>
+    </nav>
+
+    <!-- Sender Only Progress Dashboard -->
+    <div id="senderProgressCard" class="progress-card" style="display: none; width: 100%; max-width: 920px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div style="overflow:hidden; max-width: 65%;">
+                <span style="font-size:0.7rem; font-weight:700; color:var(--apple-cyan); text-transform:uppercase; letter-spacing:0.5px;">Sending File</span>
+                <div id="progressFileName" style="font-size:0.92rem; font-weight:700; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">filename.mp4</div>
+            </div>
+            <div style="text-align:right;">
+                <div id="progressSpeed" style="font-family:'JetBrains Mono',monospace; font-size:0.95rem; font-weight:700; color:var(--success);">0.00 MB/s</div>
+                <div id="progressETA" style="font-size:0.7rem; color:var(--text-tertiary); font-weight:600;">ETA: --</div>
+            </div>
+            <button id="cancelTransferBtn" style="background:rgba(255,69,58,0.18); border:1px solid rgba(255,69,58,0.4); color:var(--danger); padding:5px 10px; border-radius:999px; font-size:0.72rem; cursor:pointer; font-weight:700;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:var(--text-secondary); margin-bottom:6px; font-weight:600;">
+            <span id="progressBytesRatio">0 B / 0 B</span>
+            <span id="progressPercent" style="color:var(--apple-cyan); font-weight:800;">0%</span>
+        </div>
+        <div style="width:100%; height:7px; background:var(--input-bg); border-radius:999px; overflow:hidden; border: 1px solid var(--border);">
+            <div id="progressBarFill" class="progress-animated" style="width:0%; height:100%; background:linear-gradient(90deg, var(--apple-cyan), var(--apple-purple)); transition:width 0.15s ease;"></div>
+        </div>
+    </div>
+
+    <!-- Receiver Notice Banner -->
+    <div id="receiverNoticeBanner" class="progress-card" style="display:none; width: 100%; max-width: 920px; align-items:center; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:10px; overflow:hidden;">
+            <span class="status-dot"></span>
+            <span style="font-size:0.84rem; color:var(--text-primary); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Receiving <strong id="receivingNoticeName" style="color:var(--apple-cyan);">file</strong>...</span>
+        </div>
+        <span style="font-size:0.68rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:700; flex-shrink:0;">Incoming</span>
+    </div>
+
+    <!-- MAIN PAIRING & SHARING CONDUIT -->
+    <main style="width:100%; max-width:920px; display:flex; flex-direction:column; gap:18px; margin-bottom:24px;">
+
+        <!-- PAIRING CARDS -->
+        <div id="pairingSection" class="main-container">
+
+            <!-- CARD 1: My Device Conduit (PIN, QR, Acoustic Broadcast) -->
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-tower-broadcast"></i></div>
+                    <div class="card-title">My Device Conduit</div>
+                </div>
+                <p class="card-desc">Scan dynamic QR, enter PIN, or broadcast sound tone to pair.</p>
+
+                <div class="pin-code-huge" id="pinDisplay">------</div>
+
+                <div style="text-align:center; margin: 10px 0;">
+                    <div class="qr-wrapper"><div id="qrcode"></div></div>
+                </div>
+
+                <button class="btn" id="emitSoundBtn" style="margin-top:10px;">
+                    <i class="fa-solid fa-wave-square"></i> Emit Sound PIN
+                </button>
+            </div>
+
+            <!-- CARD 2: Connect to Peer Device -->
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-link"></i></div>
+                    <div class="card-title">Connect to Peer</div>
+                </div>
+                <p class="card-desc">Listen for acoustic waves or manually enter the 6-digit access code.</p>
+
+                <button class="btn" id="listenSoundBtn" style="background:var(--panel-alt); border:1px solid var(--border-strong); color:var(--text-primary); box-shadow:none; margin-bottom:14px;">
+                    <i class="fa-solid fa-ear-listen" style="color:var(--apple-cyan);"></i>
+                    <span id="listenBtnText">Listen for Sound PIN</span>
+                </button>
+                <canvas id="visualizerCanvas" class="oscilloscope"></canvas>
+
+                <div class="pin-input-group" style="margin-top:14px;">
+                    <input type="text" id="manualPinInput" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="off">
+                </div>
+
+                <button class="btn" id="connectPinBtn">
+                    <i class="fa-solid fa-arrow-right"></i> Pair Devices
+                </button>
+            </div>
+
+        </div>
+
+        <!-- TRANSFER & CLIPBOARD SECTION -->
+        <div id="transferSection" class="main-container">
+
+            <div class="transfer-lock-banner">
+                <i class="fa-solid fa-lock"></i>
+                <span>Pair devices above to unlock sharing</span>
+            </div>
+
+            <!-- CARD 3: Unlimited High-Speed File Conduit -->
+            <div class="card">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-bolt"></i></div>
+                    <div class="card-title">High-Speed File Transfer</div>
+                </div>
+                <p class="card-desc">Select any large files (Movies, Videos, Docs). Zero server RAM load.</p>
+
+                <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
+                    <div class="laser-beam"></div>
+                    <i class="fa-solid fa-cloud-arrow-up main-icon"></i>
+                    <p>Drop 3GB+ files or click to send</p>
+                </div>
+                <input type="file" id="fileInput" multiple style="display:none;">
+
+                <div style="font-size:0.72rem; text-transform:uppercase; font-weight:700; color:var(--text-tertiary); margin-bottom:6px; letter-spacing:0.5px;">Session History</div>
+                <div id="sessionFilesList" style="max-height:160px; overflow-y:auto;">
+                    <p style="font-size:0.78rem; color:var(--text-tertiary); font-style:italic;">No files transferred yet.</p>
+                </div>
+            </div>
+
+            <!-- CARD 4: Live Shared Clipboard -->
+            <div class="card clipboard-box">
+                <div class="card-title-row">
+                    <div class="card-icon-chip"><i class="fa-solid fa-clipboard"></i></div>
+                    <div class="card-title">Live Shared Clipboard</div>
+                </div>
+                <p class="card-desc">Type or paste text here. Instantly reflected on the connected device.</p>
+
+                <textarea id="clipboardArea" placeholder="Real-time synchronized clipboard across devices..."></textarea>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:12px;">
+                    <button class="btn" id="pasteDeviceBtn" style="background:var(--panel-alt); border:1px solid var(--border-strong); box-shadow:none; font-size:0.82rem; color:var(--text-primary);">
+                        <i class="fa-solid fa-paste" style="color:var(--apple-cyan);"></i> Paste
+                    </button>
+                    <button class="btn" id="copyDeviceBtn" style="font-size:0.82rem;">
+                        <i class="fa-solid fa-copy"></i> <span id="copyBtnText">Copy All</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- HOW IT WORKS ARCHITECTURAL GUIDE -->
+        <div class="card" style="width: 100%;">
+            <div class="card-title-row">
+                <div class="card-icon-chip"><i class="fa-solid fa-circle-nodes"></i></div>
+                <div class="card-title">How Air Share Pro Works (Architecture)</div>
+            </div>
+            <p class="card-desc">Zero cloud uploads, 100% device-to-device direct binary pipeline.</p>
+
+            <div class="how-it-works-grid">
+                <div class="step-box">
+                    <div class="step-num">01</div>
+                    <div class="step-title">Acoustic & QR Handshake</div>
+                    <div class="step-desc">Devices generate a secure 6-digit room channel encoded through audible Dual-Tone FSK sound waves or QR optical signals for instant pairing.</div>
+                </div>
+                <div class="step-box">
+                    <div class="step-num">02</div>
+                    <div class="step-title">Direct WebRTC Mesh</div>
+                    <div class="step-desc">A direct encrypted P2P RTCDataChannel opens browser-to-browser. No intermediate file servers or cloud storage relays are used.</div>
+                </div>
+                <div class="step-box">
+                    <div class="step-num">03</div>
+                    <div class="step-title">Zero-Buffer Turbo Stream</div>
+                    <div class="step-desc">Files are sliced into 128KB binary chunks and streamed at raw network speeds. Incoming buffers reconstruct directly in memory for instant auto-download.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- USER FEEDBACK FORM (Direct to vikram.2872006@gmail.com) -->
+        <div class="feedback-card">
+            <div class="card-title-row">
+                <div class="card-icon-chip" style="background: rgba(48, 209, 88, 0.2); border-color: rgba(48, 209, 88, 0.4);"><i class="fa-solid fa-paper-plane" style="color: var(--success);"></i></div>
+                <div class="card-title">Share Your Feedback</div>
+            </div>
+            <p class="card-desc">Help us make Air Share Pro faster and more resilient. Your feedback lands directly in the developer's mailbox.</p>
+
+            <form id="feedbackForm" style="display: flex; flex-direction: column; gap: 14px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px;">
+                    <div>
+                        <label style="display: block; font-size: 0.76rem; font-weight: 700; color: var(--text-tertiary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Your Name</label>
+                        <input type="text" id="feedbackName" name="name" class="feedback-input" placeholder="Vikram Bhardwaj" autocomplete="name">
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.76rem; font-weight: 700; color: var(--text-tertiary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Email Address <span style="color: var(--danger);">*</span></label>
+                        <input type="email" id="feedbackEmail" name="email" class="feedback-input" placeholder="your.email@example.com" required autocomplete="email">
+                    </div>
+                </div>
+
+                <div>
+                    <label style="display: block; font-size: 0.76rem; font-weight: 700; color: var(--text-tertiary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Category</label>
+                    <select id="feedbackCategory" name="category" class="feedback-input" style="cursor: pointer;">
+                        <option value="Feature Suggestion">✨ Feature Suggestion</option>
+                        <option value="Bug Report">🐛 Bug / Connection Issue</option>
+                        <option value="Performance Feedback">⚡ Transfer Speed Feedback</option>
+                        <option value="General Review">💬 General Review</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label style="display: block; font-size: 0.76rem; font-weight: 700; color: var(--text-tertiary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Your Message / Feedback <span style="color: var(--danger);">*</span></label>
+                    <textarea id="feedbackMessage" name="message" class="feedback-input feedback-textarea" placeholder="Tell us what you liked or how we can improve transfer reliability..." required></textarea>
+                </div>
+
+                <!-- Hidden Destination Mail Reference -->
+                <input type="hidden" name="_to" value="vikram.2872006@gmail.com">
+                <input type="hidden" name="_subject" value="New Feedback - Air Share Pro">
+
+                <button type="submit" id="feedbackSubmitBtn" class="btn" style="align-self: flex-start; min-width: 220px; margin-top: 4px;">
+                    <i class="fa-solid fa-paper-plane"></i> <span id="feedbackBtnText">Submit Feedback</span>
+                </button>
+            </form>
+
+            <div id="feedbackSuccessBanner" style="display: none; margin-top: 14px; padding: 14px 18px; border-radius: var(--radius-sm); background: rgba(48, 209, 88, 0.18); border: 1px solid rgba(48, 209, 88, 0.4); color: var(--success); font-size: 0.86rem; font-weight: 600; align-items: center; gap: 10px;">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>Thank you! Your feedback has been forwarded to <strong>vikram.2872006@gmail.com</strong>.</span>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-telemetry">
+            <div class="tele-item"><i class="fa-solid fa-server"></i><span>Edge: <strong>Render Cloud Engine</strong></span></div>
+            <div class="tele-item"><i class="fa-solid fa-network-wired"></i><span>Engine: <strong>WebRTC Direct P2P</strong></span></div>
+            <div class="tele-item"><i class="fa-solid fa-lock"></i><span>RAM Load: <strong>0 Bytes (Zero-Buffer)</strong></span></div>
+            <div class="tele-item"><i class="fa-solid fa-wave-square"></i><span>Acoustic: <strong>FSK Clock-Interlocked</strong></span></div>
+        </div>
+
+        <div class="footer-bottom">
+            <div>
+                <p>© 2026 <strong>Air share pro</strong> (air-share.markiv.site) · High-Performance WebRTC Signal Conduit</p>
+                <p style="margin-top: 4px;">Designed, Engineered &amp; Maintained by <strong>Vikram Bhardwaj</strong></p>
+            </div>
+            <div class="social-links">
+                <a href="https://github.com/vikrambhardwaj-28/air-share-pro" target="_blank" class="social-icon github" aria-label="GitHub" title="GitHub Repository"><i class="fa-brands fa-github"></i></a>
+                <a href="https://www.instagram.com/vikrm_bhardwaj?igsh=OWh4ZHprbW5rNTZv" target="_blank" class="social-icon instagram" aria-label="Instagram" title="Instagram"><i class="fa-brands fa-instagram"></i></a>
+                <a href="https://www.facebook.com/share/196jZuggxg/" target="_blank" class="social-icon facebook" aria-label="Facebook" title="Facebook"><i class="fa-brands fa-facebook-f"></i></a>
+                <a href="mailto:vikram.2872006@gmail.com" class="social-icon email" aria-label="Email" title="Send Email"><i class="fa-solid fa-envelope"></i></a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- ENGINE LOGIC SCRIPT -->
+    <script>
+        sessionStorage.clear();
+        if (window.location.hash) {
+            history.replaceState(null, null, window.location.pathname);
+        }
+
+        let myPin = "";
+        let peer = null;
+        let dataConn = null;
+        let audioCtx = null;
+        let isListening = false;
+        let listenStream = null;
+        let listenAnimId = null;
+
+        // FSK Audio Specs
+        const START_TONE = 1450;
+        const SEPARATOR_TONE = 1700;
+        const FREQ_BASE = 2000;
+        const FREQ_STEP = 150;
+        const DIGIT_DURATION = 0.16;
+        const SYNC_DURATION = 0.10;
+
+        // High-Speed WebRTC Chunk Spec
+        const CHUNK_SIZE = 128 * 1024;
+        const BUFFER_MAX_THRESHOLD = 4 * 1024 * 1024;
+
+        let isTransferAborted = false;
+        let currentTransferId = null;
+        let transferStartTime = 0;
+        let lastProgressSentTime = 0;
+        let bytesSamplePeriod = 0;
+
+        let incomingFileMeta = null;
+        let incomingFileChunks = [];
+        let incomingBytesReceived = 0;
+        const fileBlobsMap = new Map();
+
+        // DOM Elements
+        const statusLabel = document.getElementById("statusLabel");
+        const statusDot = document.getElementById("statusDot");
+        const disconnectBtn = document.getElementById("disconnectBtn");
+        const pairingSection = document.getElementById("pairingSection");
+        const transferSection = document.getElementById("transferSection");
+
+        const pinDisplay = document.getElementById("pinDisplay");
+        const qrcodeContainer = document.getElementById("qrcode");
+        const manualPinInput = document.getElementById("manualPinInput");
+        const connectPinBtn = document.getElementById("connectPinBtn");
+        const emitSoundBtn = document.getElementById("emitSoundBtn");
+        const listenSoundBtn = document.getElementById("listenSoundBtn");
+        const listenBtnText = document.getElementById("listenBtnText");
+        const visualizerCanvas = document.getElementById("visualizerCanvas");
+        const visualizerCtx = visualizerCanvas.getContext("2d");
+
+        const senderProgressCard = document.getElementById("senderProgressCard");
+        const progressFileName = document.getElementById("progressFileName");
+        const progressSpeed = document.getElementById("progressSpeed");
+        const progressETA = document.getElementById("progressETA");
+        const progressBytesRatio = document.getElementById("progressBytesRatio");
+        const progressPercent = document.getElementById("progressPercent");
+        const progressBarFill = document.getElementById("progressBarFill");
+        const cancelTransferBtn = document.getElementById("cancelTransferBtn");
+
+        const receiverNoticeBanner = document.getElementById("receiverNoticeBanner");
+        const receivingNoticeName = document.getElementById("receivingNoticeName");
+        const sessionFilesList = document.getElementById("sessionFilesList");
+
+        const clipboardArea = document.getElementById("clipboardArea");
+        const pasteDeviceBtn = document.getElementById("pasteDeviceBtn");
+        const copyDeviceBtn = document.getElementById("copyDeviceBtn");
+        const copyBtnText = document.getElementById("copyBtnText");
+        const fileInput = document.getElementById("fileInput");
+
+        // Feedback Elements
+        const feedbackForm = document.getElementById("feedbackForm");
+        const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
+        const feedbackBtnText = document.getElementById("feedbackBtnText");
+        const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
+
+        function formatBytes(bytes) {
+            if (!bytes || bytes <= 0) return "0 B";
+            const k = 1024;
+            const sizes = ["B", "KB", "MB", "GB", "TB"];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+        }
+
+        function getCurrentTimeStr() {
+            const now = new Date();
+            let hours = now.getHours();
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12 || 12;
+            return `${hours}:${minutes} ${ampm}`;
+        }
+
+        function triggerQuantumWarp() {
+            const warp = document.getElementById('quantumWarp');
+            if (warp) {
+                warp.classList.add('warp-active');
+                setTimeout(() => warp.classList.remove('warp-active'), 700);
+            }
+        }
+
+        function generatePIN() {
+            return Math.floor(100000 + Math.random() * 900000).toString();
+        }
+
+        function initConduit() {
+            myPin = generatePIN();
+            pinDisplay.innerText = myPin;
+
+            qrcodeContainer.innerHTML = "";
+            const joinUrl = `${window.location.origin}${window.location.pathname}#pin=${myPin}`;
+            new QRCode(qrcodeContainer, {
+                text: joinUrl,
+                width: 120,
+                height: 120,
+                colorDark: "#0f172a",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
+
+            if (peer) {
+                try { peer.destroy(); } catch (e) {}
+            }
+
+            peer = new Peer(`airshare-${myPin}`, {
+                host: window.location.hostname,
+                port: window.location.port || (window.location.protocol === "https:" ? 443 : 80),
+                path: "/peerjs",
+                secure: window.location.protocol === "https:"
+            });
+
+            peer.on("open", () => {
+                statusLabel.innerText = "Ready";
+                statusDot.style.background = "var(--success)";
+            });
+
+            peer.on("connection", (conn) => {
+                setupDataConnection(conn);
+            });
+        }
+
+        function connectToPeer(targetPin) {
+            if (!targetPin || targetPin.length !== 6) return alert("Enter valid 6-digit PIN");
+            statusLabel.innerText = `Connecting...`;
+            const conn = peer.connect(`airshare-${targetPin}`, { reliable: true });
+            setupDataConnection(conn);
+        }
+
+        function setupDataConnection(conn) {
+            dataConn = conn;
+
+            dataConn.on("open", () => {
+                stopListeningAudio();
+                statusLabel.innerText = "Connected with Peer";
+                triggerQuantumWarp();
+
+                if (pairingSection) {
+                    pairingSection.classList.add("conduit-hidden");
+                }
+
+                if (transferSection) {
+                    transferSection.classList.add("conduit-unblurred");
+                }
+
+                if (disconnectBtn) disconnectBtn.style.display = "inline-flex";
+
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+
+            dataConn.on("data", (data) => {
+                if (typeof data === "string") {
+                    try {
+                        const msg = JSON.parse(data);
+
+                        if (msg.type === "clipboard") {
+                            clipboardArea.value = msg.text;
+                        } 
+                        else if (msg.type === "file-start") {
+                            incomingFileMeta = msg;
+                            incomingFileChunks = [];
+                            incomingBytesReceived = 0;
+                            currentTransferId = msg.transferId;
+                            isTransferAborted = false;
+
+                            senderProgressCard.style.display = "none";
+                            receivingNoticeName.innerText = msg.name;
+                            receiverNoticeBanner.style.display = "flex";
+                        }
+                        else if (msg.type === "file-abort") {
+                            alert(`File transfer was canceled by Sender.`);
+                            resetTransferUI();
+                        }
+                        else if (msg.type === "file-delete") {
+                            const item = document.getElementById(`file-item-${msg.fileId}`);
+                            if (item) item.remove();
+                            fileBlobsMap.delete(msg.fileId);
+                            checkEmptyHistory();
+                        }
+                        else if (msg.type === "peer-disconnect") {
+                            handleDisconnection(false);
+                        }
+                        else if (msg.type === "file-end") {
+                            receiverNoticeBanner.style.display = "none";
+
+                            if (incomingFileMeta && !isTransferAborted) {
+                                const transferId = incomingFileMeta.transferId;
+                                const fileName = incomingFileMeta.name;
+                                const fileSize = incomingFileMeta.size;
+                                const fileTime = incomingFileMeta.time;
+                                const mime = incomingFileMeta.mime || "application/octet-stream";
+
+                                const safeBlob = new Blob(incomingFileChunks, { type: mime });
+                                fileBlobsMap.set(transferId, { blob: safeBlob, name: fileName });
+
+                                renderFileInHistory(fileName, fileSize, transferId, false, fileTime);
+
+                                triggerFileDownload(transferId);
+
+                                incomingFileMeta = null;
+                                incomingFileChunks = [];
+                            }
+                        }
+                    } catch (e) {
+                        console.error(e);
+                    }
+                } else {
+                    if (!incomingFileMeta || isTransferAborted) return;
+                    if (data instanceof ArrayBuffer) {
+                        incomingFileChunks.push(data);
+                        incomingBytesReceived += data.byteLength;
+                    } else if (ArrayBuffer.isView(data)) {
+                        incomingFileChunks.push(data.buffer);
+                        incomingBytesReceived += data.byteLength;
+                    } else if (data instanceof Blob) {
+                        data.arrayBuffer().then((buf) => {
+                            incomingFileChunks.push(buf);
+                            incomingBytesReceived += buf.byteLength;
+                        });
+                    }
+                }
+            });
+
+            dataConn.on("close", () => {
+                handleDisconnection(false);
+            });
+        }
+
+        window.disconnectConduit = function() {
+            if (confirm("Disconnect this session?")) {
+                if (dataConn && dataConn.open) {
+                    try {
+                        dataConn.send(JSON.stringify({ type: "peer-disconnect" }));
+                    } catch (e) {}
+                }
+                handleDisconnection(true);
+            }
+        };
+
+        function handleDisconnection(isInitiator) {
+            if (dataConn) {
+                try { dataConn.close(); } catch (e) {}
+                dataConn = null;
+            }
+
+            resetTransferUI();
+
+            statusLabel.innerText = "Ready";
+            statusDot.style.background = "var(--success)";
+
+            if (disconnectBtn) disconnectBtn.style.display = "none";
+
+            if (pairingSection) {
+                pairingSection.classList.remove("conduit-hidden");
+            }
+
+            if (transferSection) {
+                transferSection.classList.remove("conduit-unblurred");
+            }
+
+            manualPinInput.value = "";
+            clipboardArea.value = "";
+
+            myPin = generatePIN();
+            pinDisplay.innerText = myPin;
+            qrcodeContainer.innerHTML = "";
+            const joinUrl = `${window.location.origin}${window.location.pathname}#pin=${myPin}`;
+            new QRCode(qrcodeContainer, {
+                text: joinUrl,
+                width: 120,
+                height: 120,
+                colorDark: "#0f172a",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
+
+            if (!isInitiator) {
+                alert("Peer disconnected.");
+            }
+        }
+
+        function resetTransferUI() {
+            senderProgressCard.style.display = "none";
+            receiverNoticeBanner.style.display = "none";
+            incomingFileMeta = null;
+            incomingFileChunks = [];
+            incomingBytesReceived = 0;
+            isTransferAborted = false;
+            currentTransferId = null;
+        }
+
+        // Live Shared Clipboard
+        clipboardArea.addEventListener("input", (e) => {
+            if (dataConn && dataConn.open) {
+                dataConn.send(JSON.stringify({ type: "clipboard", text: e.target.value }));
+            }
+        });
+
+        pasteDeviceBtn.addEventListener("click", async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                clipboardArea.value = text;
+                if (dataConn && dataConn.open) {
+                    dataConn.send(JSON.stringify({ type: "clipboard", text }));
+                }
+            } catch (err) {
+                alert("Clipboard read permission required.");
+            }
+        });
+
+        copyDeviceBtn.addEventListener("click", async () => {
+            await navigator.clipboard.writeText(clipboardArea.value);
+            copyBtnText.innerText = "Copied!";
+            setTimeout(() => (copyBtnText.innerText = "Copy All"), 1200);
+        });
+
+        // File Transfer Stream (Sender)
+        fileInput.addEventListener("change", (e) => {
+            const files = Array.from(e.target.files);
+            if (!files.length || !dataConn || !dataConn.open) return;
+            files.forEach(sendFileStream);
+            fileInput.value = "";
+        });
+
+        cancelTransferBtn.addEventListener("click", () => {
+            if (confirm("Cancel this file transfer?")) {
+                isTransferAborted = true;
+                if (dataConn && dataConn.open) {
+                    dataConn.send(JSON.stringify({ type: "file-abort", transferId: currentTransferId }));
+                }
+                resetTransferUI();
+            }
+        });
+
+        function sendFileStream(file) {
+            isTransferAborted = false;
+            currentTransferId = "file-" + Date.now();
+            const fileTime = getCurrentTimeStr();
+
+            senderProgressCard.style.display = "block";
+            progressFileName.innerText = file.name;
+            progressBytesRatio.innerText = `0 B / ${formatBytes(file.size)}`;
+            progressPercent.innerText = "0%";
+            progressBarFill.style.width = "0%";
+            progressSpeed.innerText = "Starting...";
+            progressETA.innerText = "ETA: --";
+
+            transferStartTime = performance.now();
+            lastProgressSentTime = transferStartTime;
+            bytesSamplePeriod = 0;
+
+            fileBlobsMap.set(currentTransferId, { blob: file, name: file.name });
+
+            dataConn.send(JSON.stringify({
+                type: "file-start",
+                transferId: currentTransferId,
+                name: file.name,
+                size: file.size,
+                mime: file.type,
+                time: fileTime
+            }));
+
+            let offset = 0;
+            const channel = dataConn.dataChannel;
+
+            function streamNextChunk() {
+                if (isTransferAborted) return;
+
+                if (offset >= file.size) {
+                    dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+                    renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
+                    setTimeout(resetTransferUI, 700);
+                    return;
+                }
+
+                if (channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+                    setTimeout(streamNextChunk, 20);
+                    return;
+                }
+
+                const chunk = file.slice(offset, offset + CHUNK_SIZE);
+                chunk.arrayBuffer().then((buffer) => {
+                    if (isTransferAborted) return;
+
+                    dataConn.send(buffer);
+                    offset += buffer.byteLength;
+                    bytesSamplePeriod += buffer.byteLength;
+
+                    const now = performance.now();
+                    const timeDiff = (now - lastProgressSentTime) / 1000;
+
+                    if (timeDiff >= 0.15 || offset >= file.size) {
+                        const bytesPerSec = bytesSamplePeriod / timeDiff;
+                        const speedMB = bytesPerSec / (1024 * 1024);
+                        const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+                        const remainingBytes = Math.max(0, file.size - offset);
+                        let etaStr = "ETA: --";
+                        if (bytesPerSec > 0 && remainingBytes > 0) {
+                            const etaSec = Math.round(remainingBytes / bytesPerSec);
+                            etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
+                        }
+
+                        const pct = Math.min(100, Math.floor((offset / file.size) * 100));
+
+                        progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
+                        progressPercent.innerText = `${pct}%`;
+                        progressBarFill.style.width = `${pct}%`;
+                        progressSpeed.innerText = speedStr;
+                        progressETA.innerText = etaStr;
+
+                        bytesSamplePeriod = 0;
+                        lastProgressSentTime = now;
+                    }
+
+                    streamNextChunk();
+                });
+            }
+
+            streamNextChunk();
+        }
+
+        window.triggerFileDownload = function(fileId) {
+            const item = fileBlobsMap.get(fileId);
+            if (!item || !item.blob) return;
+
+            const { blob, name } = item;
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.style.display = "none";
+            a.href = blobUrl;
+            a.download = name;
+            a.rel = "noopener";
+
+            document.body.appendChild(a);
+            a.click();
+
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(blobUrl);
+            }, 12000);
+        };
+
+        function renderFileInHistory(name, size, fileId, isSender, timeStr) {
+            checkEmptyHistory();
+
+            const item = document.createElement("div");
+            item.id = `file-item-${fileId}`;
+            item.className = "history-item";
+
+            item.innerHTML = `
+                <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">
+                    <div style="font-weight:700; color:var(--text-primary);">${name}</div>
+                    <div style="font-size:0.7rem; color:var(--text-tertiary); margin-top:2px; font-weight:600;">
+                        ${formatBytes(size)} • <span style="color:${isSender ? 'var(--apple-cyan)' : 'var(--success)'}; font-weight:800;">${isSender ? 'Sent' : 'Received'}</span> • ${timeStr || getCurrentTimeStr()}
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button onclick="triggerFileDownload('${fileId}')" style="background:var(--success); color:#fff; border:none; padding:5px 10px; border-radius:999px; font-size:0.75rem; cursor:pointer; font-weight:700;">
+                        <i class="fa-solid fa-download"></i> Save
+                    </button>
+                    <button onclick="deleteFile('${fileId}')" style="background:rgba(255,69,58,0.18); color:var(--danger); border:1px solid rgba(255,69,58,0.3); padding:5px 8px; border-radius:8px; font-size:0.75rem; cursor:pointer;">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            `;
+
+            sessionFilesList.prepend(item);
+        }
+
+        window.deleteFile = function(fileId) {
+            if (confirm("Delete this file for both devices?")) {
+                const item = document.getElementById(`file-item-${fileId}`);
+                if (item) item.remove();
+                fileBlobsMap.delete(fileId);
+                checkEmptyHistory();
+
+                if (dataConn && dataConn.open) {
+                    dataConn.send(JSON.stringify({ type: "file-delete", fileId: fileId }));
+                }
+            }
+        };
+
+        function checkEmptyHistory() {
+            if (!sessionFilesList.querySelector(".history-item")) {
+                sessionFilesList.innerHTML = `<p style="font-size:0.78rem; color:var(--text-tertiary); font-style:italic;">No files transferred yet.</p>`;
+            } else if (sessionFilesList.querySelector("p")) {
+                sessionFilesList.querySelector("p").remove();
+            }
+        }
+
+        // Acoustic FSK Engine
+        function getAudioContext() {
+            if (!audioCtx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioCtx();
+            }
+            if (audioCtx.state === "suspended") audioCtx.resume();
+            return audioCtx;
+        }
+
+        function playTone(freq, time, duration) {
+            const ctx = getAudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(freq, time);
+
+            gain.gain.setValueAtTime(0.0001, time);
+            gain.gain.exponentialRampToValueAtTime(0.4, time + 0.015);
+            gain.gain.setValueAtTime(0.4, time + duration - 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(time);
+            osc.stop(time + duration);
+        }
+
+        emitSoundBtn.addEventListener("click", () => {
+            const ctx = getAudioContext();
+            let t = ctx.currentTime + 0.1;
+
+            emitSoundBtn.innerText = "Emitting...";
+            emitSoundBtn.style.opacity = "0.7";
+
+            playTone(START_TONE, t, 0.25);
+            t += 0.25 + 0.05;
+
+            for (let i = 0; i < myPin.length; i++) {
+                const digit = parseInt(myPin[i], 10);
+                const freq = FREQ_BASE + (digit * FREQ_STEP);
+                playTone(freq, t, DIGIT_DURATION);
+                t += DIGIT_DURATION + 0.02;
+
+                if (i < myPin.length - 1) {
+                    playTone(SEPARATOR_TONE, t, SYNC_DURATION);
+                    t += SYNC_DURATION + 0.02;
+                }
+            }
+
+            setTimeout(() => {
+                emitSoundBtn.innerHTML = `<i class="fa-solid fa-wave-square"></i> Emit Sound PIN`;
+                emitSoundBtn.style.opacity = "1";
+            }, (t - ctx.currentTime) * 1000);
+        });
+
+        listenSoundBtn.addEventListener("click", async () => {
+            if (isListening) return stopListeningAudio();
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+                });
+
+                listenStream = stream;
+                isListening = true;
+                visualizerCanvas.style.display = "block";
+                listenBtnText.innerText = "Listening...";
+                listenSoundBtn.style.borderColor = "var(--apple-cyan)";
+
+                const ctx = getAudioContext();
+                const src = ctx.createMediaStreamSource(stream);
+                const analyser = ctx.createAnalyser();
+                analyser.fftSize = 4096;
+                analyser.smoothingTimeConstant = 0.15;
+                src.connect(analyser);
+
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                const sampleRate = ctx.sampleRate;
+
+                let detectedDigits = [];
+                let machineState = "WAIT_PREAMBLE";
+                let lastValidDetectionTime = 0;
+
+                function detectLoop() {
+                    if (!isListening) return;
+
+                    analyser.getByteFrequencyData(dataArray);
+
+                    visualizerCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+                    visualizerCtx.fillStyle = "#38bdf8";
+
+                    let maxEnergy = 0;
+                    let peakBin = -1;
+                    const minBin = Math.floor((1300 * analyser.fftSize) / sampleRate);
+                    const maxBin = Math.floor((3600 * analyser.fftSize) / sampleRate);
+
+                    for (let i = minBin; i <= maxBin; i++) {
+                        if (dataArray[i] > maxEnergy) {
+                            maxEnergy = dataArray[i];
+                            peakBin = i;
+                        }
+                    }
+
+                    if (peakBin !== -1) {
+                        const x = ((peakBin - minBin) / (maxBin - minBin)) * visualizerCanvas.width;
+                        visualizerCtx.fillRect(x - 2, 0, 4, visualizerCanvas.height);
+                    }
+
+                    const now = performance.now();
+                    const peakFreq = (peakBin * sampleRate) / analyser.fftSize;
+
+                    if (maxEnergy > 130) {
+                        if (machineState === "WAIT_PREAMBLE") {
+                            if (Math.abs(peakFreq - START_TONE) < 45) {
+                                machineState = "WAIT_DIGIT";
+                                detectedDigits = [];
+                                lastValidDetectionTime = now;
+                                listenBtnText.innerText = "Locked! Syncing...";
+                            }
+                        } else if (machineState === "WAIT_DIGIT") {
+                            let matched = -1;
+                            for (let d = 0; d <= 9; d++) {
+                                const target = FREQ_BASE + (d * FREQ_STEP);
+                                if (Math.abs(peakFreq - target) < 45) {
+                                    matched = d;
+                                    break;
+                                }
+                            }
+
+                            if (matched !== -1 && (now - lastValidDetectionTime > 80)) {
+                                detectedDigits.push(matched);
+                                lastValidDetectionTime = now;
+                                listenBtnText.innerText = `Receiving: ${detectedDigits.join("")}`;
+
+                                if (detectedDigits.length === 6) {
+                                    const finalPin = detectedDigits.join("");
+                                    listenBtnText.innerText = `PIN: ${finalPin}!`;
+                                    stopListeningAudio();
+                                    connectToPeer(finalPin);
+                                    return;
+                                }
+                                machineState = "WAIT_SEPARATOR";
+                            }
+                        } else if (machineState === "WAIT_SEPARATOR") {
+                            if (Math.abs(peakFreq - SEPARATOR_TONE) < 50 && (now - lastValidDetectionTime > 70)) {
+                                machineState = "WAIT_DIGIT";
+                                lastValidDetectionTime = now;
+                            }
+                        }
+                    }
+
+                    if (machineState !== "WAIT_PREAMBLE" && (now - lastValidDetectionTime > 4000)) {
+                        machineState = "WAIT_PREAMBLE";
+                        detectedDigits = [];
+                        listenBtnText.innerText = "Listen for Sound PIN";
+                    }
+
+                    listenAnimId = requestAnimationFrame(detectLoop);
+                }
+
+                detectLoop();
+            } catch (err) {
+                alert("Microphone permission required for sound pairing.");
+                stopListeningAudio();
+            }
+        });
+
+        function stopListeningAudio() {
+            isListening = false;
+            if (listenStream) {
+                listenStream.getTracks().forEach((t) => t.stop());
+                listenStream = null;
+            }
+            if (listenAnimId) cancelAnimationFrame(listenAnimId);
+            visualizerCanvas.style.display = "none";
+            listenBtnText.innerText = "Listen for Sound PIN";
+            listenSoundBtn.style.borderColor = "var(--border-strong)";
+        }
+
+        connectPinBtn.addEventListener("click", () => {
+            connectToPeer(manualPinInput.value.trim());
+        });
+
+        // Feedback Form Submission
+        feedbackForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const name = document.getElementById("feedbackName").value.trim() || "Anonymous User";
+            const email = document.getElementById("feedbackEmail").value.trim();
+            const category = document.getElementById("feedbackCategory").value;
+            const message = document.getElementById("feedbackMessage").value.trim();
+
+            if (!email) {
+                alert("Email address enter karna compulsory hai.");
+                return;
+            }
+            if (!message) {
+                alert("Please enter your feedback message.");
+                return;
+            }
+
+            feedbackSubmitBtn.disabled = true;
+            feedbackBtnText.innerText = "Sending to Vikram...";
+
+            try {
+                const response = await fetch("https://formspree.io/f/xbjnqzzw", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        email: email,
+                        category: category,
+                        message: message,
+                        developer_email: "vikram.2872006@gmail.com",
+                        conduit_pin: myPin || "N/A",
+                        timestamp: new Date().toISOString()
+                    })
+                });
+
+                if (response.ok) {
+                    feedbackForm.reset();
+                    feedbackSuccessBanner.style.display = "flex";
+                    feedbackBtnText.innerText = "✓ Sent Successfully";
+                    setTimeout(() => {
+                        feedbackSubmitBtn.disabled = false;
+                        feedbackBtnText.innerText = "Submit Feedback";
+                    }, 4000);
+                } else {
+                    window.location.href = `mailto:vikram.2872006@gmail.com?subject=${encodeURIComponent(`[AirShare Feedback] ${category} from${name}`)}&body=${encodeURIComponent(`Name: ${name}\nEmail:${email}\nCategory: ${category}\n\nMessage:\n${message}`)}`;
+                    feedbackSuccessBanner.style.display = "flex";
+                    feedbackSubmitBtn.disabled = false;
+                    feedbackBtnText.innerText = "Submit Feedback";
+                }
+            } catch (err) {
+                window.location.href = `mailto:vikram.2872006@gmail.com?subject=${encodeURIComponent(`[AirShare Feedback] ${category} from${name}`)}&body=${encodeURIComponent(`Name: ${name}\nEmail:${email}\nCategory: ${category}\n\nMessage:\n${message}`)}`;
+                feedbackSuccessBanner.style.display = "flex";
+                feedbackSubmitBtn.disabled = false;
+                feedbackBtnText.innerText = "Submit Feedback";
+            }
+        });
+
+        // Dynamic Background Particles
+        const bgCanvas = document.getElementById('bgCanvas');
+        const bgCtx = bgCanvas.getContext('2d');
+        const cursorGlow = document.getElementById('cursorGlow');
+        let particles = [];
+
+        function resizeCanvas() {
+            bgCanvas.width = window.innerWidth;
+            bgCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        window.addEventListener('mousemove', (e) => {
+            if (cursorGlow) {
+                cursorGlow.style.left = e.clientX + 'px';
+                cursorGlow.style.top = e.clientY + 'px';
+            }
+        });
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * bgCanvas.width;
+                this.y = Math.random() * bgCanvas.height;
+                this.vx = (Math.random() - 0.5) * 0.35;
+                this.vy = (Math.random() - 0.5) * 0.35;
+                this.radius = Math.random() * 1.2 + 0.5;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                if (this.x < 0 || this.x > bgCanvas.width) this.vx *= -1;
+                if (this.y < 0 || this.y > bgCanvas.height) this.vy *= -1;
+            }
+            draw() {
+                bgCtx.beginPath();
+                bgCtx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+                bgCtx.fillStyle = isLight ? 'rgba(56, 189, 248, 0.45)' : 'rgba(41, 151, 255, 0.6)';
+                bgCtx.fill();
+            }
+        }
+
+        for (let i = 0; i < (window.innerWidth < 600 ? 16 : 32); i++) particles.push(new Particle());
+
+        function animateBg() {
+            bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+            }
+            requestAnimationFrame(animateBg);
+        }
+        animateBg();
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const newTheme = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            document.querySelector('#themeToggleBtn i').className = newTheme === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+        }
+
+        window.addEventListener("DOMContentLoaded", initConduit);
+    </script>
+</body>
+</html>
