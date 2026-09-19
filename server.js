@@ -6,26 +6,53 @@ const { ExpressPeerServer } = require('peer');
 const app = express();
 const server = http.createServer(app);
 
-// Static frontend files serve karne ke liye
-app.use(express.static(path.join(__dirname, 'public')));
+app.disable('x-powered-by');
 
-// WebRTC Signaling Server (Sirf handshake coordinate karta hai, data store nahi karta)
+const staticOptions = {
+  maxAge: '1d',
+  etag: true,
+  lastModified: true
+};
+
+app.use(express.static(path.join(__dirname, 'public'), staticOptions));
+
+const activePeers = new Set();
+const peerRoomLookup = new Map();
+
 const peerServer = ExpressPeerServer(server, {
-  debug: true,
-  path: '/'
+  debug: false,
+  path: '/',
+  allow_discovery: false
 });
 
 app.use('/peerjs', peerServer);
 
 peerServer.on('connection', (client) => {
-  console.log(`[Peer Connected] ID: ${client.getId()}`);
+  const id = client.getId();
+  activePeers.add(id);
+
+  const prefix = id.split('-')[0];
+  if (!peerRoomLookup.has(prefix)) {
+    peerRoomLookup.set(prefix, new Set());
+  }
+  peerRoomLookup.get(prefix).add(id);
 });
 
 peerServer.on('disconnect', (client) => {
-  console.log(`[Peer Disconnected] ID: ${client.getId()}`);
+  const id = client.getId();
+  activePeers.delete(id);
+
+  const prefix = id.split('-')[0];
+  const roomSet = peerRoomLookup.get(prefix);
+  if (roomSet) {
+    roomSet.delete(id);
+    if (roomSet.size === 0) {
+      peerRoomLookup.delete(prefix);
+    }
+  }
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`SonicDrop server running at: http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running at: http://localhost:${PORT}`);
 });

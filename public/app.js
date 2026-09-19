@@ -6,34 +6,28 @@ let isListening = false;
 let listenStream = null;
 let listenAnimId = null;
 
-// Audio Configuration (Acoustic FSK with Clock Separator)
 const START_TONE = 1450;
 const SEPARATOR_TONE = 1700;
 const FREQ_BASE = 2000;
 const FREQ_STEP = 150;
-const DIGIT_DURATION = 0.16;
-const SYNC_DURATION = 0.10;
+const DIGIT_DURATION = 0.10;
+const SYNC_DURATION = 0.05;
 
-// High-speed Chunking Engine
-const CHUNK_SIZE = 128 * 1024; // 128KB chunks
-const BUFFER_MAX_THRESHOLD = 4 * 1024 * 1024; // 4MB threshold
+const CHUNK_SIZE = 256 * 1024;
+const BUFFER_MAX_THRESHOLD = 8 * 1024 * 1024;
 
-// Transfer Control States
 let isTransferAborted = false;
 let currentTransferId = null;
 let transferStartTime = 0;
 let lastProgressSentTime = 0;
 let bytesSamplePeriod = 0;
 
-// Receiver State
 let incomingFileMeta = null;
 let incomingFileChunks = [];
 let incomingBytesReceived = 0;
 
-// In-memory Blobs Storage
 const fileBlobsMap = new Map();
 
-// DOM Elements
 const pinBox = document.getElementById("pinBox");
 const qrcodeContainer = document.getElementById("qrcode");
 const statusText = document.getElementById("statusText");
@@ -52,7 +46,6 @@ const copyDeviceBtn = document.getElementById("copyDeviceBtn");
 const copyBtnLabel = document.getElementById("copyBtnLabel");
 const fileInput = document.getElementById("fileInput");
 
-// Metrics Dashboard DOM (SENDER ONLY)
 const transferMetricsCard = document.getElementById("transferMetricsCard");
 const transferFileName = document.getElementById("transferFileName");
 const transferSpeed = document.getElementById("transferSpeed");
@@ -62,7 +55,6 @@ const transferPercent = document.getElementById("transferPercent");
 const progressBar = document.getElementById("progressBar");
 const cancelTransferBtn = document.getElementById("cancelTransferBtn");
 
-// Receiver Notice Banner
 const receiverNoticeBanner = document.getElementById("receiverNoticeBanner");
 const receivingNoticeName = document.getElementById("receivingNoticeName");
 
@@ -72,21 +64,20 @@ const visualizerCtx = visualizerCanvas.getContext("2d");
 
 lucide.createIcons();
 
+const SIZES = ["B", "KB", "MB", "GB", "TB"];
 function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  const i = Math.min(Math.floor(Math.log2(bytes) / 10), 4);
+  return (bytes / (1 << (i * 10))).toFixed(2) + " " + SIZES[i];
 }
 
 function getCurrentTimeStr() {
   const now = new Date();
   let hours = now.getHours();
-  const minutes = now.getMinutes().toString().padStart(2, '0');
+  const minutes = (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
   const ampm = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12 || 12;
-  return `${hours}:${minutes} ${ampm}`;
+  return hours + ":" + minutes + " " + ampm;
 }
 
 function generatePIN() {
@@ -149,7 +140,6 @@ function setupDataConnection(conn) {
   });
 
   dataConn.on("data", (data) => {
-    // 1. Control / Metadata JSON
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
@@ -164,10 +154,7 @@ function setupDataConnection(conn) {
           currentTransferId = msg.transferId;
           isTransferAborted = false;
 
-          // Progress card stays hidden on Receiver side
           transferMetricsCard.classList.add("hidden");
-
-          // Show subtle notice banner for Receiver
           receivingNoticeName.innerText = msg.name;
           receiverNoticeBanner.classList.remove("hidden");
         }
@@ -191,19 +178,14 @@ function setupDataConnection(conn) {
             const fileTime = incomingFileMeta.time;
             const mime = incomingFileMeta.mime || "application/octet-stream";
             
-            // Build safe binary Blob
             const safeBlob = new Blob(incomingFileChunks, { type: mime });
             
-            // In-memory reference
             fileBlobsMap.set(transferId, {
               blob: safeBlob,
               name: fileName
             });
 
-            // Add to session history
             renderFileInHistory(fileName, fileSize, transferId, false, fileTime);
-
-            // AUTO DOWNLOAD TRIGGER: Receive hote hi automatically download kar do!
             triggerFileDownload(transferId);
 
             incomingFileMeta = null;
@@ -211,10 +193,9 @@ function setupDataConnection(conn) {
           }
         }
       } catch (e) {
-        console.error("Control error:", e);
+        console.error(e);
       }
     } 
-    // 2. Binary Chunk Handling
     else {
       if (!incomingFileMeta || isTransferAborted) return;
 
@@ -246,7 +227,6 @@ function resetTransferUI() {
   currentTransferId = null;
 }
 
-// Live Clipboard
 clipboardArea.addEventListener("input", (e) => {
   if (dataConn && dataConn.open) {
     dataConn.send(JSON.stringify({ type: "clipboard", text: e.target.value }));
@@ -271,15 +251,15 @@ copyDeviceBtn.addEventListener("click", async () => {
   setTimeout(() => (copyBtnLabel.innerText = "Copy to Clipboard"), 1200);
 });
 
-// File Streaming (Sender)
 fileInput.addEventListener("change", (e) => {
-  const files = Array.from(e.target.files);
+  const files = e.target.files;
   if (!files.length || !dataConn || !dataConn.open) return;
-  files.forEach(sendFileStream);
+  for (let i = 0; i < files.length; i++) {
+    sendFileStream(files[i]);
+  }
   fileInput.value = "";
 });
 
-// Cancel Button Action (Sender)
 cancelTransferBtn.addEventListener("click", () => {
   if (confirm("Cancel this file transfer?")) {
     isTransferAborted = true;
@@ -295,7 +275,6 @@ function sendFileStream(file) {
   currentTransferId = "file-" + Date.now();
   const fileTime = getCurrentTimeStr();
 
-  // Show progress card ONLY FOR SENDER
   transferMetricsCard.classList.remove("hidden");
   transferFileName.innerText = file.name;
   transferBytesRatio.innerText = `0 B / ${formatBytes(file.size)}`;
@@ -310,13 +289,11 @@ function sendFileStream(file) {
   lastProgressSentTime = transferStartTime;
   bytesSamplePeriod = 0;
 
-  // Save blob in sender's local map
   fileBlobsMap.set(currentTransferId, {
     blob: file,
     name: file.name
   });
 
-  // Notify Receiver of File Start with exact Time
   dataConn.send(JSON.stringify({
     type: "file-start",
     transferId: currentTransferId,
@@ -334,15 +311,13 @@ function sendFileStream(file) {
 
     if (offset >= file.size) {
       dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
-      
-      // Render in sender history with time
       renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-      setTimeout(resetTransferUI, 800);
+      setTimeout(resetTransferUI, 500);
       return;
     }
 
     if (channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-      setTimeout(streamNextChunk, 20);
+      setTimeout(streamNextChunk, 8);
       return;
     }
 
@@ -354,16 +329,15 @@ function sendFileStream(file) {
       offset += buffer.byteLength;
       bytesSamplePeriod += buffer.byteLength;
 
-      // Update SENDER UI every ~150ms
       const now = performance.now();
-      const timeDiff = (now - lastProgressSentTime) / 1000;
+      const timeDiff = (now - lastProgressSentTime) * 0.001;
 
-      if (timeDiff >= 0.15 || offset >= file.size) {
+      if (timeDiff >= 0.1 || offset >= file.size) {
         const bytesPerSec = bytesSamplePeriod / timeDiff;
-        const speedMB = bytesPerSec / (1024 * 1024);
+        const speedMB = bytesPerSec / 1048576;
         const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
 
-        const remainingBytes = Math.max(0, file.size - offset);
+        const remainingBytes = file.size - offset;
         let etaStr = "ETA: --";
         if (bytesPerSec > 0 && remainingBytes > 0) {
           const etaSec = Math.round(remainingBytes / bytesPerSec);
@@ -389,7 +363,6 @@ function sendFileStream(file) {
   streamNextChunk();
 }
 
-// Auto & Manual Download Handler
 window.triggerFileDownload = function(fileId) {
   const item = fileBlobsMap.get(fileId);
   if (!item || !item.blob) return;
@@ -414,10 +387,9 @@ window.triggerFileDownload = function(fileId) {
   setTimeout(() => {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(blobUrl);
-  }, 12000);
+  }, 10000);
 };
 
-// Session Files History with Time & Delete Feature
 function renderFileInHistory(name, size, fileId, isSender, timeStr) {
   checkEmptyHistory();
 
@@ -472,7 +444,6 @@ function checkEmptyHistory() {
   }
 }
 
-// --- Audio Tone Synthesis & Recognition ---
 function getAudioContext() {
   if (!audioCtx) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -490,8 +461,8 @@ function playTone(freq, time, duration) {
   osc.frequency.setValueAtTime(freq, time);
 
   gain.gain.setValueAtTime(0.0001, time);
-  gain.gain.exponentialRampToValueAtTime(0.4, time + 0.015);
-  gain.gain.setValueAtTime(0.4, time + duration - 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.4, time + 0.01);
+  gain.gain.setValueAtTime(0.4, time + duration - 0.01);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
 
   osc.connect(gain);
@@ -502,23 +473,23 @@ function playTone(freq, time, duration) {
 
 emitSoundBtn.addEventListener("click", () => {
   const ctx = getAudioContext();
-  let t = ctx.currentTime + 0.1;
+  let t = ctx.currentTime + 0.05;
 
   emitSoundBtn.innerText = "Emitting Sound Waves...";
   emitSoundBtn.classList.add("opacity-70", "pointer-events-none");
 
-  playTone(START_TONE, t, 0.25);
-  t += 0.25 + 0.05;
+  playTone(START_TONE, t, 0.18);
+  t += 0.22;
 
   for (let i = 0; i < myPin.length; i++) {
-    const digit = parseInt(myPin[i], 10);
+    const digit = myPin.charCodeAt(i) - 48;
     const freq = FREQ_BASE + (digit * FREQ_STEP);
     playTone(freq, t, DIGIT_DURATION);
-    t += DIGIT_DURATION + 0.02;
+    t += DIGIT_DURATION + 0.015;
 
     if (i < myPin.length - 1) {
       playTone(SEPARATOR_TONE, t, SYNC_DURATION);
-      t += SYNC_DURATION + 0.02;
+      t += SYNC_DURATION + 0.015;
     }
   }
 
@@ -547,12 +518,16 @@ listenSoundBtn.addEventListener("click", async () => {
     const src = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 4096;
-    analyser.smoothingTimeConstant = 0.15;
+    analyser.smoothingTimeConstant = 0.1;
     src.connect(analyser);
 
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
     const sampleRate = ctx.sampleRate;
+    const binResolution = sampleRate / analyser.fftSize;
+
+    const minBin = Math.floor(1300 / binResolution);
+    const maxBin = Math.floor(3600 / binResolution);
 
     let detectedDigits = [];
     let machineState = "WAIT_PREAMBLE";
@@ -569,12 +544,11 @@ listenSoundBtn.addEventListener("click", async () => {
 
       let maxEnergy = 0;
       let peakBin = -1;
-      const minBin = Math.floor((1300 * analyser.fftSize) / sampleRate);
-      const maxBin = Math.floor((3600 * analyser.fftSize) / sampleRate);
 
       for (let i = minBin; i <= maxBin; i++) {
-        if (dataArray[i] > maxEnergy) {
-          maxEnergy = dataArray[i];
+        const val = dataArray[i];
+        if (val > maxEnergy) {
+          maxEnergy = val;
           peakBin = i;
         }
       }
@@ -585,7 +559,7 @@ listenSoundBtn.addEventListener("click", async () => {
       }
 
       const now = performance.now();
-      const peakFreq = (peakBin * sampleRate) / analyser.fftSize;
+      const peakFreq = peakBin * binResolution;
 
       if (maxEnergy > 130) {
         if (machineState === "WAIT_PREAMBLE") {
@@ -596,31 +570,28 @@ listenSoundBtn.addEventListener("click", async () => {
             listenStatus.innerText = "Locked! Reading digits...";
           }
         } else if (machineState === "WAIT_DIGIT") {
-          let matched = -1;
-          for (let d = 0; d <= 9; d++) {
-            const target = FREQ_BASE + (d * FREQ_STEP);
-            if (Math.abs(peakFreq - target) < 45) {
-              matched = d;
-              break;
-            }
-          }
+          const diff = peakFreq - FREQ_BASE;
+          const estimatedDigit = Math.round(diff / FREQ_STEP);
 
-          if (matched !== -1 && (now - lastValidDetectionTime > 80)) {
-            detectedDigits.push(matched);
-            lastValidDetectionTime = now;
-            listenStatus.innerText = `Receiving: ${detectedDigits.join("")}`;
+          if (estimatedDigit >= 0 && estimatedDigit <= 9) {
+            const target = FREQ_BASE + (estimatedDigit * FREQ_STEP);
+            if (Math.abs(peakFreq - target) < 45 && (now - lastValidDetectionTime > 60)) {
+              detectedDigits.push(estimatedDigit);
+              lastValidDetectionTime = now;
+              listenStatus.innerText = `Receiving: ${detectedDigits.join("")}`;
 
-            if (detectedDigits.length === 6) {
-              const finalPin = detectedDigits.join("");
-              listenStatus.innerText = `PIN Verified: ${finalPin}! Connecting...`;
-              stopListeningAudio();
-              connectToPeer(finalPin);
-              return;
+              if (detectedDigits.length === 6) {
+                const finalPin = detectedDigits.join("");
+                listenStatus.innerText = `PIN Verified: ${finalPin}! Connecting...`;
+                stopListeningAudio();
+                connectToPeer(finalPin);
+                return;
+              }
+              machineState = "WAIT_SEPARATOR";
             }
-            machineState = "WAIT_SEPARATOR";
           }
         } else if (machineState === "WAIT_SEPARATOR") {
-          if (Math.abs(peakFreq - SEPARATOR_TONE) < 50 && (now - lastValidDetectionTime > 70)) {
+          if (Math.abs(peakFreq - SEPARATOR_TONE) < 50 && (now - lastValidDetectionTime > 50)) {
             machineState = "WAIT_DIGIT";
             lastValidDetectionTime = now;
           }
@@ -646,7 +617,8 @@ listenSoundBtn.addEventListener("click", async () => {
 function stopListeningAudio() {
   isListening = false;
   if (listenStream) {
-    listenStream.getTracks().forEach((t) => t.stop());
+    const tracks = listenStream.getTracks();
+    for (let i = 0; i < tracks.length; i++) tracks[i].stop();
     listenStream = null;
   }
   if (listenAnimId) cancelAnimationFrame(listenAnimId);
