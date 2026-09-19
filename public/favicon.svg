@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="100%" height="100%">
+  <!-- Top Left: Blue -->
+  <rect x="2" y="2" width="12" height="12" rx="3.5" fill="#4285f4"/>
+  <!-- Top Right: Red -->
+  <rect x="18" y="2" width="12" height="12" rx="3.5" fill="#ea4335"/>
+  <!-- Bottom Left: Yellow -->
+  <rect x="2" y="18" width="12" height="12" rx="3.5" fill="#fbbc05"/>
+  <!-- Bottom Right: Green -->
+  <rect x="18" y="18" width="12" height="12" rx="3.5" fill="#34a853"/>
+</svg>

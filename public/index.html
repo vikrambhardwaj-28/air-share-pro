@@ -7,9 +7,48 @@
     <title>Air share pro — High-Speed Browser-to-Browser Signal Conduit</title>
     <meta name="description" content="Instant browser-to-browser multi-file transfer using Acoustic Sound Waves and PIN/QR codes. Fast, secure, and ephemeral file sharing.">
     <meta name="author" content="Vikram Bhardwaj">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="keywords" content="Air Share, Air Share Pro, P2P file sharing, WebRTC file transfer, Sound wave file sharing, Acoustic pairing, Browser to browser file transfer, Direct peer to peer, Send large files online, QR code file transfer, markiv.site, air share markiv">
     <link rel="canonical" href="https://air-share.markiv.site/">
 
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='12' height='12' rx='3' fill='%234285f4'/%3E%3Crect x='18' y='2' width='12' height='12' rx='3' fill='%23ea4335'/%3E%3Crect x='2' y='18' width='12' height='12' rx='3' fill='%23fbbc05'/%3E%3Crect x='18' y='18' width='12' height='12' rx='3' fill='%2334a853'/%3E%3C/svg%3E">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Air Share Pro">
+    <meta property="og:title" content="Air share pro — High-Speed Browser-to-Browser Signal Conduit">
+    <meta property="og:description" content="Instant browser-to-browser multi-file transfer using Acoustic Sound Waves and PIN/QR codes. Fast, secure, zero server storage.">
+    <meta property="og:url" content="https://air-share.markiv.site/">
+    <meta property="og:image" content="https://air-share.markiv.site/favicon.svg">
+    <meta property="og:image:width" content="512">
+    <meta property="og:image:height" content="512">
+    <meta property="og:image:type" content="image/svg+xml">
+    <meta property="og:image:alt" content="Air Share Pro Logo">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Air share pro — High-Speed Browser-to-Browser File Transfer">
+    <meta name="twitter:description" content="Share unlimited files across any device directly via WebRTC & Sound PIN without uploading to any server.">
+    <meta name="twitter:image" content="https://air-share.markiv.site/favicon.svg">
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="shortcut icon" href="/favicon.svg">
+    <link rel="apple-touch-icon" href="/favicon.svg">
+    <meta name="theme-color" content="#020617">
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Air Share Pro",
+      "url": "https://air-share.markiv.site/",
+      "logo": "https://air-share.markiv.site/favicon.svg",
+      "image": "https://air-share.markiv.site/favicon.svg",
+      "description": "Zero-server WebRTC browser-to-browser direct encrypted file and clipboard transfer using acoustic sound waves and PIN codes.",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "All",
+      "author": {
+        "@type": "Person",
+        "name": "Vikram Bhardwaj"
+      }
+    }
+    </script>
 
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -48,8 +87,9 @@
         }
 
         [data-theme="light"] {
+            --bg-wallpaper: url('https://images7.alphacoders.com/140/thumb-1920-1402492.png');
             --navbar-bg: rgba(255, 255, 255, 0.38);
-            --panel: rgba(255, 255, 255, 0.32);
+            --panel: rgba(255, 255, 255, 0.18);
             --panel-alt: rgba(255, 255, 255, 0.42);
             --border: rgba(255, 255, 255, 0.45);
             --border-strong: rgba(255, 255, 255, 0.65);
@@ -683,10 +723,10 @@
         <a href="/" class="brand-link">
             <div class="brand-mark">
                 <svg viewBox="0 0 32 32" width="22" height="22">
-                    <rect x="2" y="2" width="12" height="12" rx="3" fill="#4285f4"/>
-                    <rect x="18" y="2" width="12" height="12" rx="3" fill="#ea4335"/>
-                    <rect x="2" y="18" width="12" height="12" rx="3" fill="#fbbc05"/>
-                    <rect x="18" y="18" width="12" height="12" rx="3" fill="#34a853"/>
+                    <rect x="2" y="2" width="12" height="12" rx="3.5" fill="#4285f4"/>
+                    <rect x="18" y="2" width="12" height="12" rx="3.5" fill="#ea4335"/>
+                    <rect x="2" y="18" width="12" height="12" rx="3.5" fill="#fbbc05"/>
+                    <rect x="18" y="18" width="12" height="12" rx="3.5" fill="#34a853"/>
                 </svg>
             </div>
             <div class="brand-text">
@@ -1002,6 +1042,16 @@
         const feedbackBtnText = document.getElementById("feedbackBtnText");
         const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
+        const GLOBAL_ICE_SERVERS = [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+            { urls: "stun:stun3.l.google.com:19302" },
+            { urls: "stun:stun4.l.google.com:19302" },
+            { urls: "stun:global.stun.twilio.com:3478" },
+            { urls: "stun:stun.cloudflare.com:3478" }
+        ];
+
         function formatBytes(bytes) {
             if (!bytes || bytes <= 0) return "0 B";
             const k = 1024;
@@ -1054,7 +1104,12 @@
                 host: window.location.hostname,
                 port: window.location.port || (window.location.protocol === "https:" ? 443 : 80),
                 path: "/peerjs",
-                secure: window.location.protocol === "https:"
+                secure: window.location.protocol === "https:",
+                config: {
+                    iceServers: GLOBAL_ICE_SERVERS,
+                    iceCandidatePoolSize: 10,
+                    sdpSemantics: "unified-plan"
+                }
             });
 
             peer.on("open", () => {
@@ -1065,12 +1120,23 @@
             peer.on("connection", (conn) => {
                 setupDataConnection(conn);
             });
+
+            peer.on("error", (err) => {
+                console.error(err);
+                if (err.type === "peer-unavailable") {
+                    alert("Device offline hai ya PIN galat hai.");
+                    handleDisconnection(true);
+                }
+            });
         }
 
         function connectToPeer(targetPin) {
             if (!targetPin || targetPin.length !== 6) return alert("Enter valid 6-digit PIN");
             statusLabel.innerText = `Connecting...`;
-            const conn = peer.connect(`airshare-${targetPin}`, { reliable: true });
+            const conn = peer.connect(`airshare-${targetPin}`, { 
+                reliable: true,
+                serialization: "binary"
+            });
             setupDataConnection(conn);
         }
 
