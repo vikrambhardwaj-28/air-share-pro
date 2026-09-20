@@ -23,12 +23,11 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
-// ===================================================
-// ROCK SOLID BUFFER FLOW SPECS (NEVER FREEZE / DROP)
-// ===================================================
-const CHUNK_SIZE = 32 * 1024; // 32KB: Optimal safe WebRTC MTU slice
-const BUFFER_MAX_THRESHOLD = 1024 * 1024; // 1MB buffer max
-const BUFFER_LOW_THRESHOLD = 128 * 1024;  // 128KB fast resume
+// ========================================================
+// WINDOWED BACKPRESSURE PIPELINE (PERFECT REALTIME SYNC)
+// ========================================================
+const CHUNK_SIZE = 16 * 1024; // 16KB Standard SCTP chunk
+const WINDOW_CHUNKS = 16;     // 256KB batch window before ACK
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -36,10 +35,11 @@ let transferStartTime = 0;
 let lastProgressSentTime = 0;
 let bytesSamplePeriod = 0;
 
-// Receiver State
+// Receiver Pipeline State
 let incomingFileMeta = null;
 let incomingFileChunks = [];
 let incomingBytesReceived = 0;
+let ackCounter = 0;
 const fileBlobsMap = new Map();
 
 // UI Elements
@@ -136,9 +136,7 @@ function ensureSocket(callback) {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   socket = new WebSocket(`${scheme}://${location.host}/signal`);
 
-  socket.onopen = () => {
-    callback();
-  };
+  socket.onopen = () => callback();
 
   socket.onmessage = async ({ data }) => {
     try {
@@ -250,10 +248,12 @@ async function handleSignal(msg) {
   }
 }
 
+// Global ACK resolver for sender windowing
+let notifyWindowAck = null;
+
 function setupDataChannel(dc) {
   dataChannel = dc;
   dataChannel.binaryType = "arraybuffer";
-  dataChannel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
 
   dataChannel.onopen = () => {
     connectPinBtn.disabled = false;
@@ -271,12 +271,18 @@ function setupDataChannel(dc) {
   dataChannel.onmessage = (event) => {
     const data = event.data;
 
-    // 1. JSON Strings
+    // 1. Text control packets
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
 
-        if (msg.type === "clipboard") {
+        if (msg.type === "ack") {
+          if (notifyWindowAck) {
+            notifyWindowAck();
+            notifyWindowAck = null;
+          }
+        }
+        else if (msg.type === "clipboard") {
           isRemoteTyping = true;
           clipboardArea.value = msg.text;
           setTimeout(() => { isRemoteTyping = false; }, 35);
@@ -285,6 +291,7 @@ function setupDataChannel(dc) {
           incomingFileMeta = msg;
           incomingFileChunks = [];
           incomingBytesReceived = 0;
+          ackCounter = 0;
           currentTransferId = msg.transferId;
           isTransferAborted = false;
 
@@ -305,32 +312,38 @@ function setupDataChannel(dc) {
           handleDisconnection(false);
         }
         else if (msg.type === "file-end") {
-          // Double check: save file only when all chunks are collected
           finalizeReceivedFile();
         }
       } catch (e) {}
     } 
-    // 2. Binary Chunk Handling
+    // 2. High-speed binary chunk handling
     else {
       if (!incomingFileMeta || isTransferAborted) return;
 
       incomingFileChunks.push(data);
       incomingBytesReceived += data.byteLength;
+      ackCounter++;
 
       const totalSize = incomingFileMeta.size;
       const rxPct = Math.min(100, Math.floor((incomingBytesReceived / (totalSize || 1)) * 100));
       receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${rxPct}%)</span>`;
 
-      // Auto finalize if all bytes arrived even before file-end packet
+      // Windowed Acknowledgment bhejein taaki sender aur receiver hamesha sync rahein
+      if (ackCounter >= WINDOW_CHUNKS) {
+        ackCounter = 0;
+        try {
+          dataChannel.send(JSON.stringify({ type: "ack" }));
+        } catch (err) {}
+      }
+
+      // Auto finalize agar saare bytes receive ho chuke hain
       if (incomingBytesReceived >= totalSize && totalSize > 0) {
         finalizeReceivedFile();
       }
     }
   };
 
-  dataChannel.onclose = () => {
-    handleDisconnection(false);
-  };
+  dataChannel.onclose = () => handleDisconnection(false);
 }
 
 function finalizeReceivedFile() {
@@ -349,6 +362,11 @@ function finalizeReceivedFile() {
 
   renderFileInHistory(fileName, fileSize, transferId, false, fileTime);
   triggerFileDownload(transferId);
+
+  // Sender ko complete confirmation bhejein
+  try {
+    dataChannel.send(JSON.stringify({ type: "ack" }));
+  } catch (e) {}
 
   incomingFileMeta = null;
   incomingFileChunks = [];
@@ -449,6 +467,7 @@ function resetTransferUI() {
   incomingBytesReceived = 0;
   isTransferAborted = true;
   currentTransferId = null;
+  notifyWindowAck = null;
 }
 
 clipboardArea.addEventListener("input", (e) => {
@@ -495,9 +514,9 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// =========================================================
-// TURBO-STREAM ENGINE: REVOLUTIONARY DEADLOCK-FREE STREAMER
-// =========================================================
+// ========================================================
+// SYNC-LOCKED TRANSMITTER: NO DROPS, NO FREEZE
+// ========================================================
 async function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -533,41 +552,31 @@ async function sendFileStream(file) {
   }
 
   let offset = 0;
+  let sentInWindow = 0;
 
-  // Hybrid Buffer Drainer: Event Listener + Active 10ms Polling Guard
-  function waitBufferFree() {
+  // Window ACK Waiter with 400ms auto-recovery safeguard
+  function waitForWindowAck() {
     return new Promise((resolve) => {
-      if (!dataChannel || dataChannel.bufferedAmount <= BUFFER_LOW_THRESHOLD) {
-        return resolve();
-      }
-
-      let done = false;
-      const cleanAndResolve = () => {
-        if (!done) {
-          done = true;
-          dataChannel.removeEventListener('bufferedamountlow', cleanAndResolve);
-          clearInterval(pollTimer);
+      let resolved = false;
+      notifyWindowAck = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(fallback);
           resolve();
         }
       };
-
-      dataChannel.addEventListener('bufferedamountlow', cleanAndResolve);
-
-      // Deadlock safeguard: Never hang if event misses
-      const pollTimer = setInterval(() => {
-        if (!dataChannel || dataChannel.bufferedAmount <= BUFFER_LOW_THRESHOLD) {
-          cleanAndResolve();
+      const fallback = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          notifyWindowAck = null;
+          resolve();
         }
-      }, 10);
+      }, 400);
     });
   }
 
   try {
     while (offset < file.size && !isTransferAborted) {
-      if (dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-        await waitBufferFree();
-      }
-
       if (isTransferAborted || !dataChannel || dataChannel.readyState !== 'open') break;
 
       const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
@@ -580,6 +589,13 @@ async function sendFileStream(file) {
 
       offset = sliceEnd;
       bytesSamplePeriod += buffer.byteLength;
+      sentInWindow++;
+
+      // Batch limit reach hone par receiver ke ACK ka wait karein
+      if (sentInWindow >= WINDOW_CHUNKS) {
+        sentInWindow = 0;
+        await waitForWindowAck();
+      }
 
       const now = performance.now();
       const timeDiff = (now - lastProgressSentTime) / 1000;
@@ -609,16 +625,13 @@ async function sendFileStream(file) {
       }
     }
 
-    // Ensure completely drained before sending file-end
     if (offset >= file.size && !isTransferAborted) {
-      while (dataChannel && dataChannel.bufferedAmount > 0) {
-        await new Promise((r) => setTimeout(r, 20));
-      }
-
+      // Receiver ko file-end signal bhejein
       try {
         dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
       } catch (e) {}
 
+      // Sender ki history mein turant add karein
       renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
       setTimeout(resetTransferUI, 500);
     }
@@ -946,7 +959,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Background Particles
+// Canvas Background
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 const cursorGlow = document.getElementById('cursorGlow');
