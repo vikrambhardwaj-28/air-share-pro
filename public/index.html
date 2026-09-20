@@ -793,7 +793,7 @@
         </div>
     </div>
 
-    <!-- Receiver Notice Banner with Live Percent Indicator -->
+    <!-- Receiver Notice Banner with Exact Mirror Percent Indicator -->
     <div id="receiverNoticeBanner" class="progress-card" style="display:none; width: 100%; max-width: 920px; align-items:center; justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:10px; overflow:hidden;">
             <span class="status-dot"></span>
@@ -920,7 +920,7 @@
                 <div class="step-box">
                     <div class="step-num">03</div>
                     <div class="step-title">Zero-Buffer Turbo Stream</div>
-                    <div class="step-desc">Files are sliced into 16KB binary chunks with adaptive flow control and TURN relay support for uninterrupted cellular cross-network speed.</div>
+                    <div class="step-desc">Files are sliced into 64KB high-speed chunks with synchronous zero-latency pipeline and OpenRelay TURN support for maximum carrier speed.</div>
                 </div>
             </div>
         </div>
@@ -1021,9 +1021,9 @@
         const DIGIT_DURATION = 0.16;
         const SYNC_DURATION = 0.10;
 
-        // 16KB is the most resilient MTU-safe chunk size for cellular networks (Airtel <-> Jio)
-        const CHUNK_SIZE = 16 * 1024;
-        const BUFFER_MAX_THRESHOLD = 512 * 1024; // 512KB safe ceiling to avoid radio buffer-bloat
+        // TURBO SPEED CONFIG: 64KB chunks with 4MB pipeline window
+        const CHUNK_SIZE = 64 * 1024;
+        const BUFFER_MAX_THRESHOLD = 4 * 1024 * 1024; // 4MB buffer window for high bandwidth
 
         let isTransferAborted = false;
         let currentTransferId = null;
@@ -1194,9 +1194,8 @@
                 statusLabel.innerText = "Connected with Peer";
                 triggerQuantumWarp();
 
-                // Set threshold for responsive backpressure
                 if (dataConn.dataChannel) {
-                    dataConn.dataChannel.bufferedAmountLowThreshold = 64 * 1024;
+                    dataConn.dataChannel.bufferedAmountLowThreshold = 256 * 1024;
                 }
 
                 if (pairingSection) {
@@ -1228,8 +1227,14 @@
                             isTransferAborted = false;
 
                             senderProgressCard.style.display = "none";
-                            receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--text-secondary);">(0%)</span>`;
+                            receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(0%)</span>`;
                             receiverNoticeBanner.style.display = "flex";
+                        }
+                        // DIRECT SYNC FROM SENDER: Both devices show exact same percent & ratio
+                        else if (msg.type === "file-progress") {
+                            if (incomingFileMeta && msg.transferId === currentTransferId) {
+                                receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${msg.pct}%)</span> • <span style="color:var(--success); font-family:'JetBrains Mono',monospace;">${msg.speed}</span>`;
+                            }
                         }
                         else if (msg.type === "file-abort") {
                             alert(`File transfer was canceled by the sender.`);
@@ -1281,12 +1286,6 @@
                     if (chunkBuffer) {
                         incomingFileChunks.push(chunkBuffer);
                         incomingBytesReceived += chunkBuffer.byteLength;
-
-                        // Update incoming percentage on receiver
-                        if (incomingFileMeta.size > 0) {
-                            const pct = Math.min(100, Math.floor((incomingBytesReceived / incomingFileMeta.size) * 100));
-                            receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${pct}%)</span>`;
-                        }
                     }
                 }
             });
@@ -1431,80 +1430,87 @@
             let offset = 0;
             const channel = dataConn.dataChannel || (dataConn._dc);
 
-            function streamNextChunk() {
+            // TURBO FAST ZERO-TIMEOUT PIPELINE
+            function pumpChunks() {
                 if (isTransferAborted) return;
 
-                if (offset >= file.size) {
-                    // Send finish message only when all bytes are sent
-                    dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
-                    renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-                    setTimeout(resetTransferUI, 700);
-                    return;
-                }
-
-                // Check WebRTC internal backpressure to prevent packet drops
-                if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-                    channel.onbufferedamountlow = () => {
-                        channel.onbufferedamountlow = null;
-                        streamNextChunk();
-                    };
-                    return;
-                }
-
-                const chunk = file.slice(offset, offset + CHUNK_SIZE);
-                chunk.arrayBuffer().then((buffer) => {
-                    if (isTransferAborted) return;
-
-                    try {
-                        dataConn.send(buffer);
-                        offset += buffer.byteLength;
-                        bytesSamplePeriod += buffer.byteLength;
-
-                        const now = performance.now();
-                        const timeDiff = (now - lastProgressSentTime) / 1000;
-
-                        if (timeDiff >= 0.15 || offset >= file.size) {
-                            const bytesPerSec = bytesSamplePeriod / timeDiff;
-                            const speedMB = bytesPerSec / (1024 * 1024);
-                            const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-                            const remainingBytes = Math.max(0, file.size - offset);
-                            let etaStr = "ETA: --";
-                            if (bytesPerSec > 0 && remainingBytes > 0) {
-                                const etaSec = Math.round(remainingBytes / bytesPerSec);
-                                etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
-                            }
-
-                            const pct = Math.min(100, Math.floor((offset / file.size) * 100));
-
-                            progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
-                            progressPercent.innerText = `${pct}%`;
-                            progressBarFill.style.width = `${pct}%`;
-                            progressSpeed.innerText = speedStr;
-                            progressETA.innerText = etaStr;
-
-                            bytesSamplePeriod = 0;
-                            lastProgressSentTime = now;
-                        }
-
-                        // Gentle cellular pacing
-                        if (!channel || channel.bufferedAmount <= BUFFER_MAX_THRESHOLD) {
-                            setTimeout(streamNextChunk, 4);
-                        } else {
-                            channel.onbufferedamountlow = () => {
-                                channel.onbufferedamountlow = null;
-                                streamNextChunk();
-                            };
-                        }
-                    } catch (err) {
-                        console.error("Cellular transmission retry:", err);
-                        setTimeout(streamNextChunk, 50);
+                // Loop synchronously while buffer has space (NO artificial delay)
+                while (offset < file.size) {
+                    if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+                        channel.onbufferedamountlow = () => {
+                            channel.onbufferedamountlow = null;
+                            pumpChunks();
+                        };
+                        return;
                     }
-                });
+
+                    const chunk = file.slice(offset, offset + CHUNK_SIZE);
+                    const currentOffset = offset;
+                    offset += chunk.size;
+
+                    chunk.arrayBuffer().then((buffer) => {
+                        if (isTransferAborted) return;
+                        try {
+                            dataConn.send(buffer);
+                            bytesSamplePeriod += buffer.byteLength;
+
+                            const now = performance.now();
+                            const timeDiff = (now - lastProgressSentTime) / 1000;
+
+                            // Update stats and broadcast exact sync to receiver every 100ms
+                            if (timeDiff >= 0.1 || currentOffset + buffer.byteLength >= file.size) {
+                                const bytesPerSec = bytesSamplePeriod / timeDiff;
+                                const speedMB = bytesPerSec / (1024 * 1024);
+                                const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+                                const remainingBytes = Math.max(0, file.size - (currentOffset + buffer.byteLength));
+                                let etaStr = "ETA: --";
+                                if (bytesPerSec > 0 && remainingBytes > 0) {
+                                    const etaSec = Math.round(remainingBytes / bytesPerSec);
+                                    etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
+                                }
+
+                                const pct = Math.min(100, Math.floor(((currentOffset + buffer.byteLength) / file.size) * 100));
+
+                                progressBytesRatio.innerText = `${formatBytes(currentOffset + buffer.byteLength)} / ${formatBytes(file.size)}`;
+                                progressPercent.innerText = `${pct}%`;
+                                progressBarFill.style.width = `${pct}%`;
+                                progressSpeed.innerText = speedStr;
+                                progressETA.innerText = etaStr;
+
+                                // BROADCAST EXACT SYNC TO RECEIVER
+                                dataConn.send(JSON.stringify({
+                                    type: "file-progress",
+                                    transferId: currentTransferId,
+                                    pct: pct,
+                                    speed: speedStr
+                                }));
+
+                                bytesSamplePeriod = 0;
+                                lastProgressSentTime = now;
+                            }
+                        } catch (err) {
+                            console.error("Transmission error:", err);
+                        }
+                    });
+                }
+
+                // If completely pumped, send completion signal
+                if (offset >= file.size) {
+                    function waitForDrain() {
+                        if (channel && channel.bufferedAmount > 0) {
+                            setTimeout(waitForDrain, 25);
+                        } else {
+                            dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+                            renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
+                            setTimeout(resetTransferUI, 700);
+                        }
+                    }
+                    waitForDrain();
+                }
             }
 
-            // Start streaming
-            setTimeout(streamNextChunk, 30);
+            pumpChunks();
         }
 
         window.triggerFileDownload = function(fileId) {
