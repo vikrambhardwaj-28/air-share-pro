@@ -14,10 +14,7 @@ app.enable('trust proxy');
 app.disable('x-powered-by');
 
 app.get('/ping', (req, res) => res.status(200).send('pong'));
-app.get('/robots.txt', (req, res) => {
-  res.type('text/plain');
-  res.send('User-agent: *\nAllow: /\n');
-});
+app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: *\nAllow: /\n'));
 
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
 
@@ -30,7 +27,7 @@ function send(ws, payload) {
   }
 }
 
-function cleanClientFromRoom(ws) {
+function removeClient(ws) {
   if (!ws.room) return;
   const pin = ws.room;
   const clients = rooms.get(pin);
@@ -47,9 +44,6 @@ function cleanClientFromRoom(ws) {
 }
 
 wss.on('connection', (ws) => {
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
-
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
@@ -60,7 +54,7 @@ wss.on('connection', (ws) => {
         return send(ws, { type: 'error', message: 'Valid 6-digit PIN enter karein.' });
       }
 
-      cleanClientFromRoom(ws);
+      removeClient(ws);
 
       let clients = rooms.get(pin);
       if (!clients) {
@@ -98,23 +92,9 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => cleanClientFromRoom(ws));
-  ws.on('error', () => cleanClientFromRoom(ws));
+  ws.on('close', () => removeClient(ws));
+  ws.on('error', () => removeClient(ws));
 });
-
-// Stale connection detector (every 10s)
-const heartbeat = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (!ws.isAlive) {
-      cleanClientFromRoom(ws);
-      return ws.terminate();
-    }
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 10000);
-
-wss.on('close', () => clearInterval(heartbeat));
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {

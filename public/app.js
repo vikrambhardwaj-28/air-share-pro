@@ -4,6 +4,7 @@ if (window.location.hash) {
 }
 
 let myPin = "";
+let currentActivePin = "";
 let socket = null;
 let pc = null;
 let dataChannel = null;
@@ -22,10 +23,10 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
-// OPTIMAL HIGH SPEED WEBRTC CHUNKING
-const CHUNK_SIZE = 64 * 1024; // 64KB (Zero SCTP packet drop)
-const BUFFER_MAX_THRESHOLD = 1024 * 1024; // 1MB buffer ceiling
-const BUFFER_LOW_THRESHOLD = 256 * 1024;  // 256KB quick resume
+// HIGH SPEED TURBO STREAM
+const CHUNK_SIZE = 64 * 1024; // 64KB
+const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024; // 2MB Max buffer
+const BUFFER_LOW_THRESHOLD = 512 * 1024;     // 512KB Resume
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -84,12 +85,7 @@ const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
+    { urls: 'stun:stun1.l.google.com:19302' }
   ]
 };
 
@@ -131,16 +127,12 @@ function kickReceiverWatchdog() {
   }, 10000);
 }
 
-function signal(message) {
+// Single persistent WebSocket connection
+function ensureSocket(callback) {
   if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message));
+    return callback();
   }
-}
 
-function joinRoom(pin) {
-  myPin = pin;
-  statusLabel.innerText = "Connecting…";
-  
   if (socket) {
     try { socket.close(); } catch (e) {}
   }
@@ -149,7 +141,7 @@ function joinRoom(pin) {
   socket = new WebSocket(`${scheme}://${location.host}/signal`);
 
   socket.onopen = () => {
-    signal({ type: 'join', pin });
+    callback();
   };
 
   socket.onmessage = async ({ data }) => {
@@ -166,6 +158,21 @@ function joinRoom(pin) {
   };
 }
 
+function signal(message) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message));
+  }
+}
+
+function joinRoom(pin) {
+  currentActivePin = pin;
+  statusLabel.innerText = "Connecting…";
+
+  ensureSocket(() => {
+    signal({ type: 'join', pin });
+  });
+}
+
 function makePeer() {
   if (pc) return;
   pc = new RTCPeerConnection(rtcConfig);
@@ -175,9 +182,7 @@ function makePeer() {
   };
 
   if (isInitiator) {
-    const dc = pc.createDataChannel("airshare-turbo", { 
-      ordered: true 
-    });
+    const dc = pc.createDataChannel("airshare-pipe", { ordered: true });
     setupDataChannel(dc);
   } else {
     pc.ondatachannel = (e) => {
@@ -211,12 +216,12 @@ async function handleSignal(msg) {
 
   if (msg.type === 'joined') {
     isInitiator = msg.initiator;
-    statusLabel.innerText = isInitiator ? "Waiting for peer…" : "Peer found, syncing…";
+    statusLabel.innerText = isInitiator ? "Waiting for peer…" : "Peer found, connecting…";
     return;
   }
 
   if (msg.type === 'peer-ready') {
-    statusLabel.innerText = "Tunnel syncing…";
+    statusLabel.innerText = "Peer joined! Creating tunnel…";
     if (isInitiator && !pc) {
       await offer();
     }
@@ -367,7 +372,7 @@ function initConduit() {
 function connectToPeer(targetPin) {
   if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
   
-  statusLabel.innerText = `Joining PIN ${targetPin}...`;
+  statusLabel.innerText = `Connecting to ${targetPin}...`;
   connectPinBtn.disabled = true;
 
   if (pc) {
@@ -490,8 +495,8 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// HIGH SPEED TURBO FILE STREAM (64KB Chunks with Fast Slicing)
-function sendFileStream(file) {
+// ULTRA-FAST ZERO-OVERHEAD STREAM PIPELINE
+async function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
   const fileTime = getCurrentTimeStr();
@@ -526,27 +531,35 @@ function sendFileStream(file) {
   }
 
   let offset = 0;
-  const fileReader = new FileReader();
 
-  function readNextChunk() {
-    if (isTransferAborted) return;
-    const slice = file.slice(offset, offset + CHUNK_SIZE);
-    fileReader.readAsArrayBuffer(slice);
-  }
+  while (offset < file.size && !isTransferAborted) {
+    // Flow-control pause if buffer gets filled
+    if (dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+      await new Promise((resolve) => {
+        dataChannel.onbufferedamountlow = () => {
+          dataChannel.onbufferedamountlow = null;
+          resolve();
+        };
+      });
+    }
 
-  fileReader.onload = (e) => {
-    if (isTransferAborted) return;
+    if (isTransferAborted) break;
 
-    const buffer = e.target.result;
+    const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
+    const chunkBlob = file.slice(offset, sliceEnd);
+    const buffer = await chunkBlob.arrayBuffer();
+
+    if (isTransferAborted) break;
+
     dataChannel.send(buffer);
 
-    offset += buffer.byteLength;
+    offset = sliceEnd;
     bytesSamplePeriod += buffer.byteLength;
 
     const now = performance.now();
     const timeDiff = (now - lastProgressSentTime) / 1000;
 
-    if (timeDiff >= 0.1 || offset >= file.size) {
+    if (timeDiff >= 0.2 || offset >= file.size) {
       const bytesPerSec = bytesSamplePeriod / (timeDiff || 0.001);
       const speedMB = bytesPerSec / (1024 * 1024);
       const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
@@ -578,34 +591,23 @@ function sendFileStream(file) {
       bytesSamplePeriod = 0;
       lastProgressSentTime = now;
     }
+  }
 
-    if (offset < file.size) {
-      if (dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-        dataChannel.onbufferedamountlow = () => {
-          dataChannel.onbufferedamountlow = null;
-          readNextChunk();
-        };
+  if (offset >= file.size && !isTransferAborted) {
+    function checkDrain() {
+      if (isTransferAborted) return;
+      if (dataChannel && dataChannel.bufferedAmount > 0) {
+        activeDrainTimer = setTimeout(checkDrain, 20);
       } else {
-        readNextChunk();
+        try {
+          dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+        } catch (e) {}
+        renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
+        setTimeout(resetTransferUI, 500);
       }
-    } else {
-      function checkDrain() {
-        if (isTransferAborted) return;
-        if (dataChannel.bufferedAmount > 0) {
-          activeDrainTimer = setTimeout(checkDrain, 20);
-        } else {
-          try {
-            dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
-          } catch (e) {}
-          renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-          setTimeout(resetTransferUI, 500);
-        }
-      }
-      checkDrain();
     }
-  };
-
-  readNextChunk();
+    checkDrain();
+  }
 }
 
 window.triggerFileDownload = function(fileId) {
@@ -869,13 +871,6 @@ if (window.location.hash.includes("pin=")) {
     setTimeout(() => connectToPeer(hashPin), 500);
   }
 }
-
-// Page refresh / unload par server ko immediate cleanup message bhejna
-window.addEventListener('beforeunload', () => {
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'hangup' }));
-  }
-});
 
 feedbackForm.addEventListener("submit", async (e) => {
   e.preventDefault();
