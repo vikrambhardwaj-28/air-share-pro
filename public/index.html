@@ -920,7 +920,7 @@
                 <div class="step-box">
                     <div class="step-num">03</div>
                     <div class="step-title">Zero-Buffer Turbo Stream</div>
-                    <div class="step-desc">Files are sliced into binary chunks with adaptive flow control and TURN relay support for uninterrupted cellular cross-network speed.</div>
+                    <div class="step-desc">Files are sliced into 64KB binary chunks with non-blocking streaming flow control and OpenRelay TURN support for stable cross-carrier transfer.</div>
                 </div>
             </div>
         </div>
@@ -1014,7 +1014,7 @@
         let listenStream = null;
         let listenAnimId = null;
 
-        // Clipboard echo-guard to avoid freeze loop
+        // Anti-Echo Protection for Live Shared Clipboard
         let isRemoteTyping = false;
 
         const START_TONE = 1450;
@@ -1024,7 +1024,7 @@
         const DIGIT_DURATION = 0.16;
         const SYNC_DURATION = 0.10;
 
-        // Optimal streaming specs
+        // 64KB Chunk size with 2MB backpressure threshold
         const CHUNK_SIZE = 64 * 1024;
         const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024;
 
@@ -1136,10 +1136,10 @@
             clearTimeout(receiverWatchdogTimer);
             receiverWatchdogTimer = setTimeout(() => {
                 if (incomingFileMeta) {
-                    console.warn("Watchdog timeout - aborting orphaned incoming state");
+                    console.warn("Receiver watchdog timeout - aborting orphaned incoming state");
                     resetTransferUI();
                 }
-            }, 5000);
+            }, 6000);
         }
 
         function initConduit() {
@@ -1209,7 +1209,7 @@
                 triggerQuantumWarp();
 
                 if (dataConn.dataChannel) {
-                    dataConn.dataChannel.bufferedAmountLowThreshold = 128 * 1024;
+                    dataConn.dataChannel.bufferedAmountLowThreshold = 256 * 1024;
                 }
 
                 if (pairingSection) {
@@ -1225,7 +1225,7 @@
             });
 
             dataConn.on("data", (data) => {
-                // 1. JSON String Messages
+                // Control JSON Strings
                 if (typeof data === "string") {
                     try {
                         const msg = JSON.parse(data);
@@ -1288,10 +1288,10 @@
                             }
                         }
                     } catch (e) {
-                        console.error("Control error:", e);
+                        console.error("Control packet error:", e);
                     }
                 } 
-                // 2. Binary Chunks
+                // Binary Chunks
                 else {
                     if (!incomingFileMeta || isTransferAborted) return;
                     kickReceiverWatchdog();
@@ -1374,7 +1374,7 @@
             currentTransferId = null;
         }
 
-        // Live Shared Clipboard with anti-echo protection
+        // Live Shared Clipboard with Anti-Echo Protection
         clipboardArea.addEventListener("input", (e) => {
             if (isRemoteTyping) return;
             if (dataConn && dataConn.open) {
@@ -1419,6 +1419,7 @@
             resetTransferUI();
         });
 
+        // Rock-Solid Sequential Chunk Pipe (Zero-Premature Finish, Zero-RAM Leak)
         function sendFileStream(file) {
             isTransferAborted = false;
             currentTransferId = "file-" + Date.now();
@@ -1449,79 +1450,17 @@
 
             let offset = 0;
             const channel = dataConn.dataChannel || (dataConn._dc);
+            const reader = new FileReader();
 
-            function pumpNextBatch() {
+            function readNextSlice() {
                 if (isTransferAborted) return;
 
-                // Send chunks until channel buffer fills up
-                while (offset < file.size) {
-                    if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-                        channel.onbufferedamountlow = () => {
-                            channel.onbufferedamountlow = null;
-                            pumpNextBatch();
-                        };
-                        return;
-                    }
-
-                    const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
-                    const chunk = file.slice(offset, sliceEnd);
-                    const sentOffset = offset;
-                    offset = sliceEnd;
-
-                    chunk.arrayBuffer().then((buffer) => {
-                        if (isTransferAborted) return;
-                        try {
-                            dataConn.send(buffer);
-                            bytesSamplePeriod += buffer.byteLength;
-
-                            const now = performance.now();
-                            const timeDiff = (now - lastProgressSentTime) / 1000;
-                            const totalSentSoFar = sentOffset + buffer.byteLength;
-
-                            if (timeDiff >= 0.1 || totalSentSoFar >= file.size) {
-                                const bytesPerSec = bytesSamplePeriod / timeDiff;
-                                const speedMB = bytesPerSec / (1024 * 1024);
-                                const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-                                const remainingBytes = Math.max(0, file.size - totalSentSoFar);
-                                let etaStr = "ETA: --";
-                                if (bytesPerSec > 0 && remainingBytes > 0) {
-                                    const etaSec = Math.round(remainingBytes / bytesPerSec);
-                                    etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
-                                }
-
-                                const pct = Math.min(100, Math.floor((totalSentSoFar / file.size) * 100));
-
-                                progressBytesRatio.innerText = `${formatBytes(totalSentSoFar)} / ${formatBytes(file.size)}`;
-                                progressPercent.innerText = `${pct}%`;
-                                progressBarFill.style.width = `${pct}%`;
-                                progressSpeed.innerText = speedStr;
-                                progressETA.innerText = etaStr;
-
-                                try {
-                                    dataConn.send(JSON.stringify({
-                                        type: "file-progress",
-                                        transferId: currentTransferId,
-                                        pct: pct,
-                                        speed: speedStr
-                                    }));
-                                } catch (e) {}
-
-                                bytesSamplePeriod = 0;
-                                lastProgressSentTime = now;
-                            }
-                        } catch (err) {
-                            console.error("Pipe send error:", err);
-                        }
-                    });
-                }
-
-                // Finish check: Wait until network hardware buffer empties out
                 if (offset >= file.size) {
-                    function waitForBufferDrain() {
+                    // Drain check: ensure network buffer is physically flushed
+                    function drainAndFinish() {
                         if (isTransferAborted) return;
                         if (channel && channel.bufferedAmount > 0) {
-                            setTimeout(waitForBufferDrain, 20);
+                            setTimeout(drainAndFinish, 25);
                         } else {
                             try {
                                 dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
@@ -1530,12 +1469,85 @@
                             setTimeout(resetTransferUI, 500);
                         }
                     }
-                    waitForBufferDrain();
+                    drainAndFinish();
+                    return;
                 }
+
+                // Check SCTP buffer backpressure
+                if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+                    channel.onbufferedamountlow = () => {
+                        channel.onbufferedamountlow = null;
+                        readNextSlice();
+                    };
+                    return;
+                }
+
+                const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
+                const blobSlice = file.slice(offset, sliceEnd);
+                reader.readAsArrayBuffer(blobSlice);
             }
 
-            // Begin immediate non-blocking pump
-            setTimeout(pumpNextBatch, 10);
+            reader.onload = function(e) {
+                if (isTransferAborted) return;
+
+                const buffer = e.target.result;
+                try {
+                    dataConn.send(buffer);
+                    offset += buffer.byteLength;
+                    bytesSamplePeriod += buffer.byteLength;
+
+                    const now = performance.now();
+                    const timeDiff = (now - lastProgressSentTime) / 1000;
+
+                    if (timeDiff >= 0.1 || offset >= file.size) {
+                        const bytesPerSec = bytesSamplePeriod / timeDiff;
+                        const speedMB = bytesPerSec / (1024 * 1024);
+                        const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+                        const remainingBytes = Math.max(0, file.size - offset);
+                        let etaStr = "ETA: --";
+                        if (bytesPerSec > 0 && remainingBytes > 0) {
+                            const etaSec = Math.round(remainingBytes / bytesPerSec);
+                            etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
+                        }
+
+                        const pct = Math.min(100, Math.floor((offset / file.size) * 100));
+
+                        progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
+                        progressPercent.innerText = `${pct}%`;
+                        progressBarFill.style.width = `${pct}%`;
+                        progressSpeed.innerText = speedStr;
+                        progressETA.innerText = etaStr;
+
+                        try {
+                            dataConn.send(JSON.stringify({
+                                type: "file-progress",
+                                transferId: currentTransferId,
+                                pct: pct,
+                                speed: speedStr
+                            }));
+                        } catch (err) {}
+
+                        bytesSamplePeriod = 0;
+                        lastProgressSentTime = now;
+                    }
+
+                    if (!channel || channel.bufferedAmount <= BUFFER_MAX_THRESHOLD) {
+                        readNextSlice();
+                    } else {
+                        channel.onbufferedamountlow = () => {
+                            channel.onbufferedamountlow = null;
+                            readNextSlice();
+                        };
+                    }
+                } catch (err) {
+                    console.error("Transmission error, retrying slice:", err);
+                    setTimeout(readNextSlice, 50);
+                }
+            };
+
+            // Start sending first slice
+            readNextSlice();
         }
 
         window.triggerFileDownload = function(fileId) {
