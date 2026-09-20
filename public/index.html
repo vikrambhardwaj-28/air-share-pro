@@ -793,7 +793,7 @@
         </div>
     </div>
 
-    <!-- Receiver Notice Banner with Exact Mirror Percent Indicator -->
+    <!-- Receiver Notice Banner with Live Percent Indicator -->
     <div id="receiverNoticeBanner" class="progress-card" style="display:none; width: 100%; max-width: 920px; align-items:center; justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:10px; overflow:hidden;">
             <span class="status-dot"></span>
@@ -920,7 +920,7 @@
                 <div class="step-box">
                     <div class="step-num">03</div>
                     <div class="step-title">Zero-Buffer Turbo Stream</div>
-                    <div class="step-desc">Files are sliced into 64KB high-speed chunks with synchronous zero-latency pipeline and OpenRelay TURN support for maximum carrier speed.</div>
+                    <div class="step-desc">Files are sliced into binary chunks with adaptive flow control and TURN relay support for uninterrupted cellular cross-network speed.</div>
                 </div>
             </div>
         </div>
@@ -1014,6 +1014,9 @@
         let listenStream = null;
         let listenAnimId = null;
 
+        // Clipboard echo-guard to avoid freeze loop
+        let isRemoteTyping = false;
+
         const START_TONE = 1450;
         const SEPARATOR_TONE = 1700;
         const FREQ_BASE = 2000;
@@ -1021,9 +1024,9 @@
         const DIGIT_DURATION = 0.16;
         const SYNC_DURATION = 0.10;
 
-        // TURBO SPEED CONFIG: 64KB chunks with 4MB pipeline window
+        // Optimal streaming specs
         const CHUNK_SIZE = 64 * 1024;
-        const BUFFER_MAX_THRESHOLD = 4 * 1024 * 1024; // 4MB buffer window for high bandwidth
+        const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024;
 
         let isTransferAborted = false;
         let currentTransferId = null;
@@ -1031,9 +1034,11 @@
         let lastProgressSentTime = 0;
         let bytesSamplePeriod = 0;
 
+        // Receiver state
         let incomingFileMeta = null;
         let incomingFileChunks = [];
         let incomingBytesReceived = 0;
+        let receiverWatchdogTimer = null;
         const fileBlobsMap = new Map();
 
         const statusLabel = document.getElementById("statusLabel");
@@ -1076,7 +1081,6 @@
         const feedbackBtnText = document.getElementById("feedbackBtnText");
         const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-        // High-Priority Global STUN + Free OpenRelay TURN servers for NAT traversal
         const GLOBAL_ICE_SERVERS = [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun1.l.google.com:19302" },
@@ -1126,6 +1130,16 @@
 
         function generatePIN() {
             return Math.floor(100000 + Math.random() * 900000).toString();
+        }
+
+        function kickReceiverWatchdog() {
+            clearTimeout(receiverWatchdogTimer);
+            receiverWatchdogTimer = setTimeout(() => {
+                if (incomingFileMeta) {
+                    console.warn("Watchdog timeout - aborting orphaned incoming state");
+                    resetTransferUI();
+                }
+            }, 5000);
         }
 
         function initConduit() {
@@ -1195,7 +1209,7 @@
                 triggerQuantumWarp();
 
                 if (dataConn.dataChannel) {
-                    dataConn.dataChannel.bufferedAmountLowThreshold = 256 * 1024;
+                    dataConn.dataChannel.bufferedAmountLowThreshold = 128 * 1024;
                 }
 
                 if (pairingSection) {
@@ -1207,17 +1221,19 @@
                 }
 
                 if (disconnectBtn) disconnectBtn.style.display = "inline-flex";
-
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             });
 
             dataConn.on("data", (data) => {
+                // 1. JSON String Messages
                 if (typeof data === "string") {
                     try {
                         const msg = JSON.parse(data);
 
                         if (msg.type === "clipboard") {
+                            isRemoteTyping = true;
                             clipboardArea.value = msg.text;
+                            setTimeout(() => { isRemoteTyping = false; }, 30);
                         } 
                         else if (msg.type === "file-start") {
                             incomingFileMeta = msg;
@@ -1229,15 +1245,16 @@
                             senderProgressCard.style.display = "none";
                             receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(0%)</span>`;
                             receiverNoticeBanner.style.display = "flex";
+                            kickReceiverWatchdog();
                         }
-                        // DIRECT SYNC FROM SENDER: Both devices show exact same percent & ratio
                         else if (msg.type === "file-progress") {
                             if (incomingFileMeta && msg.transferId === currentTransferId) {
                                 receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${msg.pct}%)</span> • <span style="color:var(--success); font-family:'JetBrains Mono',monospace;">${msg.speed}</span>`;
+                                kickReceiverWatchdog();
                             }
                         }
                         else if (msg.type === "file-abort") {
-                            alert(`File transfer was canceled by the sender.`);
+                            clearTimeout(receiverWatchdogTimer);
                             resetTransferUI();
                         }
                         else if (msg.type === "file-delete") {
@@ -1250,6 +1267,7 @@
                             handleDisconnection(false);
                         }
                         else if (msg.type === "file-end") {
+                            clearTimeout(receiverWatchdogTimer);
                             receiverNoticeBanner.style.display = "none";
 
                             if (incomingFileMeta && !isTransferAborted) {
@@ -1263,7 +1281,6 @@
                                 fileBlobsMap.set(transferId, { blob: safeBlob, name: fileName });
 
                                 renderFileInHistory(fileName, fileSize, transferId, false, fileTime);
-
                                 triggerFileDownload(transferId);
 
                                 incomingFileMeta = null;
@@ -1271,10 +1288,13 @@
                             }
                         }
                     } catch (e) {
-                        console.error("Control packet error:", e);
+                        console.error("Control error:", e);
                     }
-                } else {
+                } 
+                // 2. Binary Chunks
+                else {
                     if (!incomingFileMeta || isTransferAborted) return;
+                    kickReceiverWatchdog();
 
                     let chunkBuffer = null;
                     if (data instanceof ArrayBuffer) {
@@ -1312,20 +1332,15 @@
                 dataConn = null;
             }
 
+            clearTimeout(receiverWatchdogTimer);
             resetTransferUI();
 
             statusLabel.innerText = "Ready";
             statusDot.style.background = "var(--success)";
 
             if (disconnectBtn) disconnectBtn.style.display = "none";
-
-            if (pairingSection) {
-                pairingSection.classList.remove("conduit-hidden");
-            }
-
-            if (transferSection) {
-                transferSection.classList.remove("conduit-unblurred");
-            }
+            if (pairingSection) pairingSection.classList.remove("conduit-hidden");
+            if (transferSection) transferSection.classList.remove("conduit-unblurred");
 
             manualPinInput.value = "";
             clipboardArea.value = "";
@@ -1349,18 +1364,23 @@
         }
 
         function resetTransferUI() {
+            clearTimeout(receiverWatchdogTimer);
             senderProgressCard.style.display = "none";
             receiverNoticeBanner.style.display = "none";
             incomingFileMeta = null;
             incomingFileChunks = [];
             incomingBytesReceived = 0;
-            isTransferAborted = false;
+            isTransferAborted = true;
             currentTransferId = null;
         }
 
+        // Live Shared Clipboard with anti-echo protection
         clipboardArea.addEventListener("input", (e) => {
+            if (isRemoteTyping) return;
             if (dataConn && dataConn.open) {
-                dataConn.send(JSON.stringify({ type: "clipboard", text: e.target.value }));
+                try {
+                    dataConn.send(JSON.stringify({ type: "clipboard", text: e.target.value }));
+                } catch (err) {}
             }
         });
 
@@ -1390,13 +1410,13 @@
         });
 
         cancelTransferBtn.addEventListener("click", () => {
-            if (confirm("Cancel this file transfer?")) {
-                isTransferAborted = true;
-                if (dataConn && dataConn.open) {
+            isTransferAborted = true;
+            if (dataConn && dataConn.open) {
+                try {
                     dataConn.send(JSON.stringify({ type: "file-abort", transferId: currentTransferId }));
-                }
-                resetTransferUI();
+                } catch (e) {}
             }
+            resetTransferUI();
         });
 
         function sendFileStream(file) {
@@ -1430,23 +1450,23 @@
             let offset = 0;
             const channel = dataConn.dataChannel || (dataConn._dc);
 
-            // TURBO FAST ZERO-TIMEOUT PIPELINE
-            function pumpChunks() {
+            function pumpNextBatch() {
                 if (isTransferAborted) return;
 
-                // Loop synchronously while buffer has space (NO artificial delay)
+                // Send chunks until channel buffer fills up
                 while (offset < file.size) {
                     if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
                         channel.onbufferedamountlow = () => {
                             channel.onbufferedamountlow = null;
-                            pumpChunks();
+                            pumpNextBatch();
                         };
                         return;
                     }
 
-                    const chunk = file.slice(offset, offset + CHUNK_SIZE);
-                    const currentOffset = offset;
-                    offset += chunk.size;
+                    const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
+                    const chunk = file.slice(offset, sliceEnd);
+                    const sentOffset = offset;
+                    offset = sliceEnd;
 
                     chunk.arrayBuffer().then((buffer) => {
                         if (isTransferAborted) return;
@@ -1456,61 +1476,66 @@
 
                             const now = performance.now();
                             const timeDiff = (now - lastProgressSentTime) / 1000;
+                            const totalSentSoFar = sentOffset + buffer.byteLength;
 
-                            // Update stats and broadcast exact sync to receiver every 100ms
-                            if (timeDiff >= 0.1 || currentOffset + buffer.byteLength >= file.size) {
+                            if (timeDiff >= 0.1 || totalSentSoFar >= file.size) {
                                 const bytesPerSec = bytesSamplePeriod / timeDiff;
                                 const speedMB = bytesPerSec / (1024 * 1024);
                                 const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
 
-                                const remainingBytes = Math.max(0, file.size - (currentOffset + buffer.byteLength));
+                                const remainingBytes = Math.max(0, file.size - totalSentSoFar);
                                 let etaStr = "ETA: --";
                                 if (bytesPerSec > 0 && remainingBytes > 0) {
                                     const etaSec = Math.round(remainingBytes / bytesPerSec);
                                     etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
                                 }
 
-                                const pct = Math.min(100, Math.floor(((currentOffset + buffer.byteLength) / file.size) * 100));
+                                const pct = Math.min(100, Math.floor((totalSentSoFar / file.size) * 100));
 
-                                progressBytesRatio.innerText = `${formatBytes(currentOffset + buffer.byteLength)} / ${formatBytes(file.size)}`;
+                                progressBytesRatio.innerText = `${formatBytes(totalSentSoFar)} / ${formatBytes(file.size)}`;
                                 progressPercent.innerText = `${pct}%`;
                                 progressBarFill.style.width = `${pct}%`;
                                 progressSpeed.innerText = speedStr;
                                 progressETA.innerText = etaStr;
 
-                                // BROADCAST EXACT SYNC TO RECEIVER
-                                dataConn.send(JSON.stringify({
-                                    type: "file-progress",
-                                    transferId: currentTransferId,
-                                    pct: pct,
-                                    speed: speedStr
-                                }));
+                                try {
+                                    dataConn.send(JSON.stringify({
+                                        type: "file-progress",
+                                        transferId: currentTransferId,
+                                        pct: pct,
+                                        speed: speedStr
+                                    }));
+                                } catch (e) {}
 
                                 bytesSamplePeriod = 0;
                                 lastProgressSentTime = now;
                             }
                         } catch (err) {
-                            console.error("Transmission error:", err);
+                            console.error("Pipe send error:", err);
                         }
                     });
                 }
 
-                // If completely pumped, send completion signal
+                // Finish check: Wait until network hardware buffer empties out
                 if (offset >= file.size) {
-                    function waitForDrain() {
+                    function waitForBufferDrain() {
+                        if (isTransferAborted) return;
                         if (channel && channel.bufferedAmount > 0) {
-                            setTimeout(waitForDrain, 25);
+                            setTimeout(waitForBufferDrain, 20);
                         } else {
-                            dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+                            try {
+                                dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+                            } catch (e) {}
                             renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-                            setTimeout(resetTransferUI, 700);
+                            setTimeout(resetTransferUI, 500);
                         }
                     }
-                    waitForDrain();
+                    waitForBufferDrain();
                 }
             }
 
-            pumpChunks();
+            // Begin immediate non-blocking pump
+            setTimeout(pumpNextBatch, 10);
         }
 
         window.triggerFileDownload = function(fileId) {
