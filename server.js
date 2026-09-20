@@ -1,67 +1,108 @@
-const express = require('express');
-const http = require('http');
-const path = require('path');
-const { ExpressPeerServer } = require('peer');
+import express from 'express';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { WebSocketServer, WebSocket } from 'ws';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 
-// 1. Crucial for Render / Reverse Proxy (Fixes WSS / HTTPS WebSocket drop)
 app.enable('trust proxy');
 app.disable('x-powered-by');
 
-// 2. Global CORS & Security Headers
+// CORS & Headers
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
 
-// SEO & Crawler Sitemap
+// Sitemap & Robots
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
   res.send('User-agent: *\nAllow: /\nSitemap: https://airshare-pro.markiv.site/sitemap.xml\n');
 });
 
-// Health check endpoint (Render auto-sleep preventer)
+// Render Keep-Alive / Health Check
 app.get('/ping', (req, res) => {
   res.status(200).send('pong');
 });
 
-// Static assets serving
-const staticOptions = {
+// Static assets
+app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d',
   etag: true,
   lastModified: true
-};
+}));
 
-app.use(express.static(path.join(__dirname, 'public'), staticOptions));
+// ==========================================
+// 6-DIGIT PIN ROOM WEBSOCKET SIGNALLING
+// ==========================================
+const rooms = new Map();
+const wss = new WebSocketServer({ server, path: '/signal' });
 
-// 3. High-Speed Cellular PeerServer Configuration
-const peerServer = ExpressPeerServer(server, {
-  debug: false,
-  allow_discovery: true,
-  alive_timeout: 45000,     // 45s heartbeat to keep cellular sockets alive
-  key: 'peerjs',
-  concurrent_limit: 5000
-});
+function send(ws, payload) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+}
 
-app.use('/peerjs', peerServer);
+function leave(ws) {
+  if (!ws.room) return;
+  const clients = rooms.get(ws.room);
+  clients?.delete(ws);
+  for (const peer of clients || []) send(peer, { type: 'peer-left' });
+  if (!clients?.size) rooms.delete(ws.room);
+  ws.room = null;
+}
 
-// Connection logging for easy debugging
-peerServer.on('connection', (client) => {
-  console.log(`[Peer Connected] ID: ${client.getId()}`);
-});
+wss.on('connection', (ws) => {
+  ws.on('message', (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
 
-peerServer.on('disconnect', (client) => {
-  console.log(`[Peer Disconnected] ID: ${client.getId()}`);
+    if (msg.type === 'join') {
+      const pin = String(msg.pin || '');
+      if (!/^\d{6}$/.test(pin)) {
+        return send(ws, { type: 'error', message: 'Valid 6-digit PIN required.' });
+      }
+
+      leave(ws);
+
+      const clients = rooms.get(pin) || new Set();
+      if (clients.size >= 2) {
+        return send(ws, { type: 'error', message: 'Room is already full.' });
+      }
+
+      rooms.set(pin, clients);
+      ws.room = pin;
+      clients.add(ws);
+
+      const isInitiator = clients.size === 1;
+      send(ws, { type: 'joined', initiator: isInitiator, pin });
+
+      if (clients.size === 2) {
+        for (const peer of clients) {
+          send(peer, { type: 'peer-ready' });
+        }
+      }
+      return;
+    }
+
+    if (['offer', 'answer', 'candidate', 'hangup'].includes(msg.type) && ws.room) {
+      for (const peer of rooms.get(ws.room) || []) {
+        if (peer !== ws) send(peer, msg);
+      }
+    }
+  });
+
+  ws.on('close', () => leave(ws));
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Air Share Pro Conduit active on port ${PORT}`);
+  console.log(`Air Share Pro Conduit running on port ${PORT}`);
 });

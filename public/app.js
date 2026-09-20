@@ -4,8 +4,11 @@ if (window.location.hash) {
 }
 
 let myPin = "";
-let peer = null;
-let dataConn = null;
+let socket = null;
+let pc = null;
+let dataChannel = null;
+let isInitiator = false;
+
 let audioCtx = null;
 let isListening = false;
 let listenStream = null;
@@ -23,9 +26,9 @@ const SYNC_DURATION = 0.08;
 // ==========================================
 // MAX SPEED TURBO PIPELINE SPECS
 // ==========================================
-const CHUNK_SIZE = 256 * 1024; // 256KB: Maximum throughput chunk
-const BUFFER_MAX_THRESHOLD = 8 * 1024 * 1024; // 8MB high-bandwidth pipeline
-const BUFFER_LOW_THRESHOLD = 1024 * 1024; // 1MB wakeup threshold
+const CHUNK_SIZE = 256 * 1024;
+const BUFFER_MAX_THRESHOLD = 8 * 1024 * 1024;
+const BUFFER_LOW_THRESHOLD = 1024 * 1024;
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -83,28 +86,29 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-// Ultra-fast Global STUN + OpenRelay TURN servers
-const GLOBAL_ICE_SERVERS = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun.cloudflare.com:3478" },
-  { urls: "stun:global.stun.twilio.com:3478" },
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject"
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject"
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-    username: "openrelayproject",
-    credential: "openrelayproject"
-  }
-];
+// STUN + OpenRelay TURN for strict symmetric NATs
+const rtcConfig = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    }
+  ]
+};
 
 function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return "0 B";
@@ -145,7 +149,15 @@ function kickReceiverWatchdog() {
   }, 7000);
 }
 
-// Fast Unified Initialization
+// ==========================================
+// WEBSOCKET SIGNALLING & WEBRTC ENGINE
+// ==========================================
+function sendSignal(payload) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(payload));
+  }
+}
+
 function initConduit() {
   myPin = generatePIN();
   pinDisplay.innerText = myPin;
@@ -161,82 +173,149 @@ function initConduit() {
     correctLevel: QRCode.CorrectLevel.M
   });
 
-  if (peer) {
-    try { peer.destroy(); } catch (e) {}
+  setupSignallingSocket(myPin);
+}
+
+function setupSignallingSocket(pinToJoin) {
+  if (socket) {
+    try { socket.close(); } catch(e) {}
   }
 
-  peer = new Peer(`airshare-${myPin}`, {
-    config: {
-      iceServers: GLOBAL_ICE_SERVERS,
-      iceCandidatePoolSize: 20,
-      sdpSemantics: "unified-plan"
+  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  socket = new WebSocket(`${scheme}://${location.host}/signal`);
+
+  socket.onopen = () => {
+    sendSignal({ type: 'join', pin: pinToJoin });
+  };
+
+  socket.onmessage = async ({ data }) => {
+    try {
+      const msg = JSON.parse(data);
+      handleSignallingMessage(msg);
+    } catch (e) {
+      console.error(e);
     }
-  });
+  };
 
-  peer.on("open", () => {
-    statusLabel.innerText = "Ready";
-    statusDot.style.background = "var(--success)";
-  });
-
-  peer.on("connection", (conn) => {
-    setupDataConnection(conn);
-  });
-
-  peer.on("error", (err) => {
-    console.warn("Peer Notice:", err);
-    if (err.type === "peer-unavailable") {
-      statusLabel.innerText = "Device not found";
-      alert("The remote device is offline or PIN is incorrect. Please check the 6-digit code.");
-      handleDisconnection(true);
+  socket.onclose = () => {
+    if (transferSection && transferSection.classList.contains('conduit-unblurred')) {
+      statusLabel.innerText = "Signalling reconnecting…";
     }
-  });
+  };
 }
 
-function connectToPeer(targetPin) {
-  if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
-  
-  statusLabel.innerText = `Connecting (${targetPin})...`;
-  connectPinBtn.disabled = true;
-
-  const conn = peer.connect(`airshare-${targetPin}`, { 
-    reliable: true
-  });
-
-  let connectionTimeout = setTimeout(() => {
-    if (!dataConn || !dataConn.open) {
-      connectPinBtn.disabled = false;
-      statusLabel.innerText = "Ready";
-      alert("Connection timed out. Please verify PIN and try again.");
-    }
-  }, 4500);
-
-  setupDataConnection(conn, connectionTimeout);
-}
-
-function setupDataConnection(conn, timeoutToClear) {
-  dataConn = conn;
-
-  dataConn.on("open", () => {
-    if (timeoutToClear) clearTimeout(timeoutToClear);
+async function handleSignallingMessage(msg) {
+  if (msg.type === 'error') {
+    alert(msg.message);
     connectPinBtn.disabled = false;
+    statusLabel.innerText = "Ready";
+    return;
+  }
 
+  if (msg.type === 'joined') {
+    isInitiator = msg.initiator;
+    if (isInitiator) {
+      statusLabel.innerText = "Waiting for peer…";
+    } else {
+      statusLabel.innerText = "Room joined, connecting…";
+    }
+    return;
+  }
+
+  if (msg.type === 'peer-ready') {
+    statusLabel.innerText = "Peer found! Connecting...";
+    createPeerConnection();
+    if (isInitiator) {
+      createAndSendOffer();
+    }
+    return;
+  }
+
+  if (msg.type === 'offer') {
+    createPeerConnection();
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    sendSignal({ type: 'answer', sdp: pc.localDescription });
+    return;
+  }
+
+  if (msg.type === 'answer') {
+    if (pc) await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    return;
+  }
+
+  if (msg.type === 'candidate') {
+    if (pc && msg.candidate) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      } catch (e) {}
+    }
+    return;
+  }
+
+  if (msg.type === 'peer-left' || msg.type === 'hangup') {
+    handleDisconnection(false);
+  }
+}
+
+function createPeerConnection() {
+  if (pc) return;
+
+  pc = new RTCPeerConnection(rtcConfig);
+
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) sendSignal({ type: 'candidate', candidate });
+  };
+
+  if (isInitiator) {
+    const dc = pc.createDataChannel("airshare-pipe", { ordered: true });
+    attachDataChannelHandlers(dc);
+  } else {
+    pc.ondatachannel = (event) => {
+      attachDataChannelHandlers(event.channel);
+    };
+  }
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') {
+      statusLabel.innerText = "Connected with Peer";
+      statusDot.style.background = "var(--success)";
+      triggerQuantumWarp();
+    } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      statusLabel.innerText = "Reconnecting...";
+    }
+  };
+}
+
+async function createAndSendOffer() {
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  sendSignal({ type: 'offer', sdp: pc.localDescription });
+}
+
+function attachDataChannelHandlers(dc) {
+  dataChannel = dc;
+  dataChannel.binaryType = "arraybuffer";
+  dataChannel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
+
+  dataChannel.onopen = () => {
+    connectPinBtn.disabled = false;
     stopListeningAudio();
     statusLabel.innerText = "Connected with Peer";
     triggerQuantumWarp();
-
-    if (dataConn.dataChannel) {
-      dataConn.dataChannel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
-    }
 
     if (pairingSection) pairingSection.classList.add("conduit-hidden");
     if (transferSection) transferSection.classList.add("conduit-unblurred");
     if (disconnectBtn) disconnectBtn.style.display = "inline-flex";
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  });
+  };
 
-  dataConn.on("data", (data) => {
-    // 1. JSON String Messages
+  dataChannel.onmessage = (event) => {
+    const data = event.data;
+
+    // 1. JSON Strings
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
@@ -245,7 +324,7 @@ function setupDataConnection(conn, timeoutToClear) {
           isRemoteTyping = true;
           clipboardArea.value = msg.text;
           setTimeout(() => { isRemoteTyping = false; }, 35);
-        } 
+        }
         else if (msg.type === "file-start") {
           incomingFileMeta = msg;
           incomingFileChunks = [];
@@ -301,8 +380,8 @@ function setupDataConnection(conn, timeoutToClear) {
       } catch (e) {
         console.error("Control packet error:", e);
       }
-    } 
-    // 2. Binary Packets
+    }
+    // 2. Binary Chunks
     else {
       if (!incomingFileMeta || isTransferAborted) return;
       kickReceiverWatchdog();
@@ -319,28 +398,47 @@ function setupDataConnection(conn, timeoutToClear) {
         incomingBytesReceived += chunkBuffer.byteLength;
       }
     }
-  });
+  };
 
-  dataConn.on("close", () => {
+  dataChannel.onclose = () => {
     handleDisconnection(false);
-  });
+  };
+}
+
+function connectToPeer(targetPin) {
+  if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
+  
+  statusLabel.innerText = `Connecting to ${targetPin}...`;
+  connectPinBtn.disabled = true;
+
+  if (pc) {
+    try { pc.close(); } catch(e) {}
+    pc = null;
+  }
+
+  setupSignallingSocket(targetPin);
 }
 
 window.disconnectConduit = function() {
   if (confirm("Disconnect this active session?")) {
-    if (dataConn && dataConn.open) {
+    if (dataChannel && dataChannel.readyState === "open") {
       try {
-        dataConn.send(JSON.stringify({ type: "peer-disconnect" }));
+        dataChannel.send(JSON.stringify({ type: "peer-disconnect" }));
       } catch (e) {}
     }
+    sendSignal({ type: 'hangup' });
     handleDisconnection(true);
   }
 };
 
-function handleDisconnection(isInitiator) {
-  if (dataConn) {
-    try { dataConn.close(); } catch (e) {}
-    dataConn = null;
+function handleDisconnection(isLocalTrigger) {
+  if (dataChannel) {
+    try { dataChannel.close(); } catch(e) {}
+    dataChannel = null;
+  }
+  if (pc) {
+    try { pc.close(); } catch(e) {}
+    pc = null;
   }
 
   clearTimeout(receiverWatchdogTimer);
@@ -369,7 +467,9 @@ function handleDisconnection(isInitiator) {
     correctLevel: QRCode.CorrectLevel.M
   });
 
-  if (!isInitiator) {
+  setupSignallingSocket(myPin);
+
+  if (!isLocalTrigger) {
     alert("The remote peer has disconnected.");
   }
 }
@@ -388,12 +488,12 @@ function resetTransferUI() {
   currentTransferId = null;
 }
 
-// Live Shared Clipboard
+// Live Clipboard
 clipboardArea.addEventListener("input", (e) => {
   if (isRemoteTyping) return;
-  if (dataConn && dataConn.open) {
+  if (dataChannel && dataChannel.readyState === "open") {
     try {
-      dataConn.send(JSON.stringify({ type: "clipboard", text: e.target.value }));
+      dataChannel.send(JSON.stringify({ type: "clipboard", text: e.target.value }));
     } catch (err) {}
   }
 });
@@ -402,8 +502,8 @@ pasteDeviceBtn.addEventListener("click", async () => {
   try {
     const text = await navigator.clipboard.readText();
     clipboardArea.value = text;
-    if (dataConn && dataConn.open) {
-      dataConn.send(JSON.stringify({ type: "clipboard", text }));
+    if (dataChannel && dataChannel.readyState === "open") {
+      dataChannel.send(JSON.stringify({ type: "clipboard", text }));
     }
   } catch (err) {
     alert("Clipboard read permission is required to paste.");
@@ -418,24 +518,22 @@ copyDeviceBtn.addEventListener("click", async () => {
 
 fileInput.addEventListener("change", (e) => {
   const files = Array.from(e.target.files);
-  if (!files.length || !dataConn || !dataConn.open) return;
+  if (!files.length || !dataChannel || dataChannel.readyState !== "open") return;
   files.forEach(sendFileStream);
   fileInput.value = "";
 });
 
 cancelTransferBtn.addEventListener("click", () => {
   isTransferAborted = true;
-  if (dataConn && dataConn.open) {
+  if (dataChannel && dataChannel.readyState === "open") {
     try {
-      dataConn.send(JSON.stringify({ type: "file-abort", transferId: currentTransferId }));
+      dataChannel.send(JSON.stringify({ type: "file-abort", transferId: currentTransferId }));
     } catch (e) {}
   }
   resetTransferUI();
 });
 
-// ====================================================
-// TURBO-SPEED: High-Throughput Pre-Buffering Pipeline
-// ====================================================
+// High-Throughput Turbo Slicing
 function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -456,7 +554,7 @@ function sendFileStream(file) {
   fileBlobsMap.set(currentTransferId, { blob: file, name: file.name });
 
   try {
-    dataConn.send(JSON.stringify({
+    dataChannel.send(JSON.stringify({
       type: "file-start",
       transferId: currentTransferId,
       name: file.name,
@@ -471,11 +569,6 @@ function sendFileStream(file) {
   }
 
   let offset = 0;
-  const channel = dataConn.dataChannel || (dataConn._dc);
-  if (channel) {
-    channel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
-  }
-
   let isPumping = false;
 
   async function pumpPipeline() {
@@ -483,11 +576,10 @@ function sendFileStream(file) {
     isPumping = true;
 
     try {
-      // Loop continuously while channel has capacity
       while (offset < file.size && !isTransferAborted) {
-        if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-          channel.onbufferedamountlow = () => {
-            channel.onbufferedamountlow = null;
+        if (dataChannel && dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+          dataChannel.onbufferedamountlow = () => {
+            dataChannel.onbufferedamountlow = null;
             isPumping = false;
             pumpPipeline();
           };
@@ -499,11 +591,10 @@ function sendFileStream(file) {
         const currentSliceLength = sliceEnd - offset;
         offset = sliceEnd;
 
-        // Native zero-overhead arrayBuffer stream
         const buffer = await chunkBlob.arrayBuffer();
         if (isTransferAborted) return;
 
-        dataConn.send(buffer);
+        dataChannel.send(buffer);
         bytesSamplePeriod += currentSliceLength;
 
         const now = performance.now();
@@ -530,7 +621,7 @@ function sendFileStream(file) {
           progressETA.innerText = etaStr;
 
           try {
-            dataConn.send(JSON.stringify({
+            dataChannel.send(JSON.stringify({
               type: "file-progress",
               transferId: currentTransferId,
               pct: pct,
@@ -543,15 +634,14 @@ function sendFileStream(file) {
         }
       }
 
-      // Check physical buffer drain before declaring completed
       if (offset >= file.size) {
         function checkPhysicalDrain() {
           if (isTransferAborted) return;
-          if (channel && channel.bufferedAmount > 0) {
+          if (dataChannel && dataChannel.bufferedAmount > 0) {
             activeDrainTimer = setTimeout(checkPhysicalDrain, 15);
           } else {
             try {
-              dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+              dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
             } catch (e) {}
             renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
             setTimeout(resetTransferUI, 500);
@@ -560,7 +650,7 @@ function sendFileStream(file) {
         checkPhysicalDrain();
       }
     } catch (err) {
-      console.error("Turbo stream retry:", err);
+      console.error("Turbo stream error:", err);
       setTimeout(() => {
         isPumping = false;
         pumpPipeline();
@@ -574,7 +664,7 @@ function sendFileStream(file) {
 }
 
 window.triggerFileDownload = function(fileId) {
-  const item = fileBlobsMap.get(fileId);
+  const item = fileBloBlobsMap().get(fileId);
   if (!item || !item.blob) return;
 
   const { blob, name } = item;
@@ -593,6 +683,8 @@ window.triggerFileDownload = function(fileId) {
     window.URL.revokeObjectURL(blobUrl);
   }, 12000);
 };
+
+function fileBloBlobsMap() { return fileBlobsMap; }
 
 function renderFileInHistory(name, size, fileId, isSender, timeStr) {
   const item = document.createElement("div");
@@ -627,8 +719,8 @@ window.deleteFile = function(fileId) {
     fileBlobsMap.delete(fileId);
     updateHistoryEmptyState();
 
-    if (dataConn && dataConn.open) {
-      dataConn.send(JSON.stringify({ type: "file-delete", fileId: fileId }));
+    if (dataChannel && dataChannel.readyState === "open") {
+      dataChannel.send(JSON.stringify({ type: "file-delete", fileId: fileId }));
     }
   }
 };
@@ -828,6 +920,15 @@ connectPinBtn.addEventListener("click", () => {
   connectToPeer(manualPinInput.value.trim());
 });
 
+// Auto-join from URL hash if opened via QR code
+if (window.location.hash.includes("pin=")) {
+  const hashPin = window.location.hash.split("pin=")[1].slice(0, 6);
+  if (/^\d{6}$/.test(hashPin)) {
+    manualPinInput.value = hashPin;
+    setTimeout(() => connectToPeer(hashPin), 500);
+  }
+}
+
 feedbackForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -878,7 +979,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Background particle animation
+// Particles and theme
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 const cursorGlow = document.getElementById('cursorGlow');
@@ -939,5 +1040,6 @@ function toggleTheme() {
   html.setAttribute('data-theme', newTheme);
   document.querySelector('#themeToggleBtn i').className = newTheme === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
 }
+window.toggleTheme = toggleTheme;
 
 window.addEventListener("DOMContentLoaded", initConduit);

@@ -1,15 +1,16 @@
 {
-  "name": "sonicdrop-p2p",
+  "name": "airshare-pro",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node --optimize-for-size --max-old-space-size=512 server.js",
-    "prod": "NODE_ENV=production node --turbo-fast-api-calls server.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "peer": "^1.0.2"
+    "ws": "^8.18.0"
   },
   "engines": {
     "node": ">=18.0.0"
