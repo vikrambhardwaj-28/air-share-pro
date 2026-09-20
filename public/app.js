@@ -17,15 +17,15 @@ const START_TONE = 1450;
 const SEPARATOR_TONE = 1700;
 const FREQ_BASE = 2000;
 const FREQ_STEP = 150;
-const DIGIT_DURATION = 0.12; // Fast acoustic tone
+const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
 // ==========================================
-// TURBO PIPELINE ENGINE (Raw MTU-Optimized)
+// TURBO PIPELINE SPECS
 // ==========================================
-const CHUNK_SIZE = 128 * 1024; // 128KB: Optimal cellular throughput
+const CHUNK_SIZE = 128 * 1024; // 128KB optimal chunk
 const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024; // 2MB streaming ceiling
-const BUFFER_LOW_THRESHOLD = 256 * 1024; // Wakeup pipeline at 256KB
+const BUFFER_LOW_THRESHOLD = 256 * 1024; // 256KB wakeup watermark
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -83,7 +83,7 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-// Fast Global STUN + OpenRelay TURN servers for NAT traversal
+// High-priority Global STUN + Multi-Port OpenRelay TURN (Airtel vs Jio Carrier Traversal)
 const GLOBAL_ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
@@ -139,13 +139,13 @@ function kickReceiverWatchdog() {
   clearTimeout(receiverWatchdogTimer);
   receiverWatchdogTimer = setTimeout(() => {
     if (incomingFileMeta) {
-      console.warn("Watchdog timeout triggered. Resetting receiver.");
+      console.warn("Watchdog timeout triggered. Clearing hung state.");
       resetTransferUI();
     }
   }, 7000);
 }
 
-// Ultra-fast pairing initialization
+// 100% Reliable Unified Conduit Initialization
 function initConduit() {
   myPin = generatePIN();
   pinDisplay.innerText = myPin;
@@ -165,21 +165,16 @@ function initConduit() {
     try { peer.destroy(); } catch (e) {}
   }
 
-  let isConnectedToSignal = false;
-
+  // Consistent Global Signaling (Zero split-brain between devices)
   peer = new Peer(`airshare-${myPin}`, {
-    host: window.location.hostname,
-    port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80),
-    path: '/peerjs',
-    secure: window.location.protocol === 'https:',
     config: {
       iceServers: GLOBAL_ICE_SERVERS,
-      iceCandidatePoolSize: 20
+      iceCandidatePoolSize: 20,
+      sdpSemantics: "unified-plan"
     }
   });
 
-  peer.on("open", () => {
-    isConnectedToSignal = true;
+  peer.on("open", (id) => {
     statusLabel.innerText = "Ready";
     statusDot.style.background = "var(--success)";
   });
@@ -188,56 +183,54 @@ function initConduit() {
     setupDataConnection(conn);
   });
 
-  function activateFallbackCloud() {
-    if (isConnectedToSignal) return;
-    if (peer) {
-      try { peer.destroy(); } catch (e) {}
-    }
-    peer = new Peer(`airshare-${myPin}`, {
-      config: {
-        iceServers: GLOBAL_ICE_SERVERS,
-        iceCandidatePoolSize: 20
-      }
-    });
-
-    peer.on("open", () => {
-      isConnectedToSignal = true;
-      statusLabel.innerText = "Ready (Relay)";
-      statusDot.style.background = "var(--success)";
-    });
-
-    peer.on("connection", (conn) => setupDataConnection(conn));
-    peer.on("error", (err) => console.error("Relay mesh error:", err));
-  }
-
-  const fallbackTimer = setTimeout(activateFallbackCloud, 2000);
-
   peer.on("error", (err) => {
-    console.warn("Signaling notice:", err);
-    if (!isConnectedToSignal) {
-      clearTimeout(fallbackTimer);
-      activateFallbackCloud();
-    } else if (err.type === "peer-unavailable") {
-      alert("The target device is offline or PIN is incorrect.");
+    console.warn("Peer signal warning:", err);
+    if (err.type === "peer-unavailable") {
+      statusLabel.innerText = "Device not found";
+      alert("The remote device is offline or PIN is incorrect. Please check the 6-digit code.");
       handleDisconnection(true);
     }
   });
 }
 
+// Intelligent connection with automatic retry
+let connectRetryCount = 0;
 function connectToPeer(targetPin) {
   if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
-  statusLabel.innerText = `Connecting...`;
+  
+  statusLabel.innerText = `Connecting (${targetPin})...`;
+  connectPinBtn.disabled = true;
 
   const conn = peer.connect(`airshare-${targetPin}`, { 
     reliable: true
   });
-  setupDataConnection(conn);
+
+  let connectionTimeout = setTimeout(() => {
+    if (!dataConn || !dataConn.open) {
+      if (connectRetryCount < 2) {
+        connectRetryCount++;
+        console.log(`Retrying handshake... attempt ${connectRetryCount}`);
+        connectToPeer(targetPin);
+      } else {
+        connectPinBtn.disabled = false;
+        connectRetryCount = 0;
+        statusLabel.innerText = "Ready";
+        alert("Connection timed out. Ensure both devices are on Air Share Pro and verify PIN.");
+      }
+    }
+  }, 4000);
+
+  setupDataConnection(conn, connectionTimeout);
 }
 
-function setupDataConnection(conn) {
+function setupDataConnection(conn, timeoutToClear) {
   dataConn = conn;
 
   dataConn.on("open", () => {
+    if (timeoutToClear) clearTimeout(timeoutToClear);
+    connectPinBtn.disabled = false;
+    connectRetryCount = 0;
+
     stopListeningAudio();
     statusLabel.innerText = "Connected with Peer";
     triggerQuantumWarp();
@@ -254,7 +247,7 @@ function setupDataConnection(conn) {
   });
 
   dataConn.on("data", (data) => {
-    // 1. JSON String Control Messages
+    // 1. JSON String Messages
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
@@ -320,7 +313,7 @@ function setupDataConnection(conn) {
         console.error("Control packet error:", e);
       }
     } 
-    // 2. High-Speed Binary Packets
+    // 2. Binary Chunks
     else {
       if (!incomingFileMeta || isTransferAborted) return;
       kickReceiverWatchdog();
@@ -406,7 +399,7 @@ function resetTransferUI() {
   currentTransferId = null;
 }
 
-// Live Shared Clipboard with anti-echo protection
+// Live Shared Clipboard
 clipboardArea.addEventListener("input", (e) => {
   if (isRemoteTyping) return;
   if (dataConn && dataConn.open) {
@@ -451,9 +444,7 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// ====================================================
-// TURBO-STREAM: Synchronous Non-Blocking Stream Pump
-// ====================================================
+// Fast Native ArrayBuffer Pumping
 function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -514,7 +505,6 @@ function sendFileStream(file) {
         const currentSliceLength = sliceEnd - offset;
         offset = sliceEnd;
 
-        // Native zero-overhead arrayBuffer extraction
         const buffer = await chunkBlob.arrayBuffer();
         if (isTransferAborted) return;
 
@@ -558,7 +548,6 @@ function sendFileStream(file) {
         }
       }
 
-      // Finish condition
       if (offset >= file.size) {
         function checkPhysicalDrain() {
           if (isTransferAborted) return;
@@ -585,8 +574,7 @@ function sendFileStream(file) {
     }
   }
 
-  // Immediate start
-  setTimeout(pumpBatch, 100);
+  setTimeout(pumpBatch, 50);
 }
 
 window.triggerFileDownload = function(fileId) {
@@ -894,7 +882,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Canvas particle animation
+// Background particle animation
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 const cursorGlow = document.getElementById('cursorGlow');
