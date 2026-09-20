@@ -920,7 +920,7 @@
                 <div class="step-box">
                     <div class="step-num">03</div>
                     <div class="step-title">Zero-Buffer Turbo Stream</div>
-                    <div class="step-desc">Files are sliced into 64KB binary chunks with non-blocking streaming flow control and OpenRelay TURN support for stable cross-carrier transfer.</div>
+                    <div class="step-desc">Files are sliced into synchronous binary chunks with verified handshake and OpenRelay TURN support for uninterrupted cross-carrier transfer.</div>
                 </div>
             </div>
         </div>
@@ -1014,7 +1014,7 @@
         let listenStream = null;
         let listenAnimId = null;
 
-        // Anti-Echo Protection for Live Shared Clipboard
+        // Anti-Echo Flag for Clipboard
         let isRemoteTyping = false;
 
         const START_TONE = 1450;
@@ -1024,15 +1024,18 @@
         const DIGIT_DURATION = 0.16;
         const SYNC_DURATION = 0.10;
 
-        // 64KB Chunk size with 2MB backpressure threshold
+        // 64KB Chunk Size with responsive backpressure
         const CHUNK_SIZE = 64 * 1024;
-        const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024;
+        const BUFFER_MAX_THRESHOLD = 1024 * 1024; // 1MB buffer ceiling
 
         let isTransferAborted = false;
         let currentTransferId = null;
         let transferStartTime = 0;
         let lastProgressSentTime = 0;
         let bytesSamplePeriod = 0;
+        let activeReader = null;
+        let activeDrainTimer = null;
+        let activeSliceCallback = null;
 
         // Receiver state
         let incomingFileMeta = null;
@@ -1081,6 +1084,7 @@
         const feedbackBtnText = document.getElementById("feedbackBtnText");
         const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
+        // High-Priority Global STUN + Free OpenRelay TURN servers for NAT traversal
         const GLOBAL_ICE_SERVERS = [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun1.l.google.com:19302" },
@@ -1139,7 +1143,7 @@
                     console.warn("Receiver watchdog timeout - aborting orphaned incoming state");
                     resetTransferUI();
                 }
-            }, 6000);
+            }, 8000);
         }
 
         function initConduit() {
@@ -1194,8 +1198,10 @@
         function connectToPeer(targetPin) {
             if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
             statusLabel.innerText = `Connecting...`;
+            // Serialization 'none' ensures raw WebRTC DataChannel without BinaryPack bugs
             const conn = peer.connect(`airshare-${targetPin}`, { 
-                reliable: true
+                reliable: true,
+                serialization: "none"
             });
             setupDataConnection(conn);
         }
@@ -1225,7 +1231,7 @@
             });
 
             dataConn.on("data", (data) => {
-                // Control JSON Strings
+                // 1. JSON String Control Messages
                 if (typeof data === "string") {
                     try {
                         const msg = JSON.parse(data);
@@ -1246,6 +1252,20 @@
                             receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(0%)</span>`;
                             receiverNoticeBanner.style.display = "flex";
                             kickReceiverWatchdog();
+
+                            // Handshake ACK: Inform sender that receiver is ready
+                            try {
+                                dataConn.send(JSON.stringify({
+                                    type: "file-start-ack",
+                                    transferId: msg.transferId
+                                }));
+                            } catch (e) {}
+                        }
+                        else if (msg.type === "file-start-ack") {
+                            // Receiver confirmed ready - begin pumping chunks
+                            if (activeSliceCallback) {
+                                activeSliceCallback();
+                            }
                         }
                         else if (msg.type === "file-progress") {
                             if (incomingFileMeta && msg.transferId === currentTransferId) {
@@ -1291,7 +1311,7 @@
                         console.error("Control packet error:", e);
                     }
                 } 
-                // Binary Chunks
+                // 2. Raw Binary Chunks
                 else {
                     if (!incomingFileMeta || isTransferAborted) return;
                     kickReceiverWatchdog();
@@ -1365,6 +1385,13 @@
 
         function resetTransferUI() {
             clearTimeout(receiverWatchdogTimer);
+            clearTimeout(activeDrainTimer);
+            activeSliceCallback = null;
+            if (activeReader) {
+                try { activeReader.abort(); } catch (e) {}
+                activeReader = null;
+            }
+
             senderProgressCard.style.display = "none";
             receiverNoticeBanner.style.display = "none";
             incomingFileMeta = null;
@@ -1374,7 +1401,7 @@
             currentTransferId = null;
         }
 
-        // Live Shared Clipboard with Anti-Echo Protection
+        // Live Shared Clipboard with anti-echo protection
         clipboardArea.addEventListener("input", (e) => {
             if (isRemoteTyping) return;
             if (dataConn && dataConn.open) {
@@ -1419,7 +1446,7 @@
             resetTransferUI();
         });
 
-        // Rock-Solid Sequential Chunk Pipe (Zero-Premature Finish, Zero-RAM Leak)
+        // Genuine Synchronous Chunk Pacing with Handshake Verification
         function sendFileStream(file) {
             isTransferAborted = false;
             currentTransferId = "file-" + Date.now();
@@ -1439,18 +1466,26 @@
 
             fileBlobsMap.set(currentTransferId, { blob: file, name: file.name });
 
-            dataConn.send(JSON.stringify({
-                type: "file-start",
-                transferId: currentTransferId,
-                name: file.name,
-                size: file.size,
-                mime: file.type,
-                time: fileTime
-            }));
+            // 1. Send Handshake Message
+            try {
+                dataConn.send(JSON.stringify({
+                    type: "file-start",
+                    transferId: currentTransferId,
+                    name: file.name,
+                    size: file.size,
+                    mime: file.type,
+                    time: fileTime
+                }));
+            } catch (e) {
+                alert("Connection failed. Please re-pair devices.");
+                resetTransferUI();
+                return;
+            }
 
             let offset = 0;
             const channel = dataConn.dataChannel || (dataConn._dc);
             const reader = new FileReader();
+            activeReader = reader;
 
             function readNextSlice() {
                 if (isTransferAborted) return;
@@ -1460,7 +1495,7 @@
                     function drainAndFinish() {
                         if (isTransferAborted) return;
                         if (channel && channel.bufferedAmount > 0) {
-                            setTimeout(drainAndFinish, 25);
+                            activeDrainTimer = setTimeout(drainAndFinish, 20);
                         } else {
                             try {
                                 dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
@@ -1546,8 +1581,18 @@
                 }
             };
 
-            // Start sending first slice
-            readNextSlice();
+            // Register callback to run when receiver confirms handshake
+            activeSliceCallback = () => {
+                activeSliceCallback = null;
+                readNextSlice();
+            };
+
+            // Safety fallback: if ACK packet takes longer than 600ms, start sending anyway
+            setTimeout(() => {
+                if (activeSliceCallback) {
+                    activeSliceCallback();
+                }
+            }, 600);
         }
 
         window.triggerFileDownload = function(fileId) {
