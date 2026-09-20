@@ -22,10 +22,10 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
-// FAST STREAM CONFIG
-const CHUNK_SIZE = 256 * 1024;
-const BUFFER_MAX_THRESHOLD = 8 * 1024 * 1024;
-const BUFFER_LOW_THRESHOLD = 1024 * 1024;
+// OPTIMAL HIGH SPEED WEBRTC CHUNKING
+const CHUNK_SIZE = 64 * 1024; // 64KB (Zero SCTP packet drop)
+const BUFFER_MAX_THRESHOLD = 1024 * 1024; // 1MB buffer ceiling
+const BUFFER_LOW_THRESHOLD = 256 * 1024;  // 256KB quick resume
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -81,7 +81,6 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-// Fast & Light ICE Servers (No slow scanning)
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -127,15 +126,11 @@ function kickReceiverWatchdog() {
   clearTimeout(receiverWatchdogTimer);
   receiverWatchdogTimer = setTimeout(() => {
     if (incomingFileMeta) {
-      console.warn("Watchdog reset.");
       resetTransferUI();
     }
-  }, 7000);
+  }, 10000);
 }
 
-// ==========================================
-// EXACT PEHLE CODE WALI WEBSOCKET ROOM LOGIC
-// ==========================================
 function signal(message) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(message));
@@ -144,7 +139,7 @@ function signal(message) {
 
 function joinRoom(pin) {
   myPin = pin;
-  statusLabel.innerText = "Connecting to room…";
+  statusLabel.innerText = "Connecting…";
   
   if (socket) {
     try { socket.close(); } catch (e) {}
@@ -180,7 +175,9 @@ function makePeer() {
   };
 
   if (isInitiator) {
-    const dc = pc.createDataChannel("airshare-data", { ordered: true });
+    const dc = pc.createDataChannel("airshare-turbo", { 
+      ordered: true 
+    });
     setupDataChannel(dc);
   } else {
     pc.ondatachannel = (e) => {
@@ -219,7 +216,7 @@ async function handleSignal(msg) {
   }
 
   if (msg.type === 'peer-ready') {
-    statusLabel.innerText = "Peer joined! Creating tunnel…";
+    statusLabel.innerText = "Tunnel syncing…";
     if (isInitiator && !pc) {
       await offer();
     }
@@ -334,24 +331,13 @@ function setupDataChannel(dc) {
             incomingFileChunks = [];
           }
         }
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) {}
     } else {
       if (!incomingFileMeta || isTransferAborted) return;
       kickReceiverWatchdog();
 
-      let chunkBuffer = null;
-      if (data instanceof ArrayBuffer) {
-        chunkBuffer = data;
-      } else if (ArrayBuffer.isView(data)) {
-        chunkBuffer = data.buffer;
-      }
-
-      if (chunkBuffer) {
-        incomingFileChunks.push(chunkBuffer);
-        incomingBytesReceived += chunkBuffer.byteLength;
-      }
+      incomingFileChunks.push(data);
+      incomingBytesReceived += data.byteLength;
     }
   };
 
@@ -360,7 +346,6 @@ function setupDataChannel(dc) {
   };
 }
 
-// App start
 function initConduit() {
   myPin = generatePIN();
   pinDisplay.innerText = myPin;
@@ -376,7 +361,6 @@ function initConduit() {
     correctLevel: QRCode.CorrectLevel.M
   });
 
-  // Host joins the generated PIN room immediately
   joinRoom(myPin);
 }
 
@@ -391,7 +375,6 @@ function connectToPeer(targetPin) {
     pc = null;
   }
 
-  // Client directly joins target PIN room
   joinRoom(targetPin);
 }
 
@@ -463,7 +446,6 @@ function resetTransferUI() {
   currentTransferId = null;
 }
 
-// Live Clipboard
 clipboardArea.addEventListener("input", (e) => {
   if (isRemoteTyping) return;
   if (dataChannel && dataChannel.readyState === "open") {
@@ -508,7 +490,7 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// TURBO FILE STREAM
+// HIGH SPEED TURBO FILE STREAM (64KB Chunks with Fast Slicing)
 function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -544,97 +526,86 @@ function sendFileStream(file) {
   }
 
   let offset = 0;
-  let isPumping = false;
+  const fileReader = new FileReader();
 
-  async function pumpPipeline() {
-    if (isTransferAborted || isPumping) return;
-    isPumping = true;
-
-    try {
-      while (offset < file.size && !isTransferAborted) {
-        if (dataChannel && dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-          dataChannel.onbufferedamountlow = () => {
-            dataChannel.onbufferedamountlow = null;
-            isPumping = false;
-            pumpPipeline();
-          };
-          return;
-        }
-
-        const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
-        const chunkBlob = file.slice(offset, sliceEnd);
-        const currentSliceLength = sliceEnd - offset;
-        offset = sliceEnd;
-
-        const buffer = await chunkBlob.arrayBuffer();
-        if (isTransferAborted) return;
-
-        dataChannel.send(buffer);
-        bytesSamplePeriod += currentSliceLength;
-
-        const now = performance.now();
-        const timeDiff = (now - lastProgressSentTime) / 1000;
-
-        if (timeDiff >= 0.12 || offset >= file.size) {
-          const bytesPerSec = bytesSamplePeriod / timeDiff;
-          const speedMB = bytesPerSec / (1024 * 1024);
-          const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-          const remainingBytes = Math.max(0, file.size - offset);
-          let etaStr = "ETA: --";
-          if (bytesPerSec > 0 && remainingBytes > 0) {
-            const etaSec = Math.round(remainingBytes / bytesPerSec);
-            etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
-          }
-
-          const pct = Math.min(100, Math.floor((offset / file.size) * 100));
-
-          progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
-          progressPercent.innerText = `${pct}%`;
-          progressBarFill.style.width = `${pct}%`;
-          progressSpeed.innerText = speedStr;
-          progressETA.innerText = etaStr;
-
-          try {
-            dataChannel.send(JSON.stringify({
-              type: "file-progress",
-              transferId: currentTransferId,
-              pct: pct,
-              speed: speedStr
-            }));
-          } catch (err) {}
-
-          bytesSamplePeriod = 0;
-          lastProgressSentTime = now;
-        }
-      }
-
-      if (offset >= file.size) {
-        function checkPhysicalDrain() {
-          if (isTransferAborted) return;
-          if (dataChannel && dataChannel.bufferedAmount > 0) {
-            activeDrainTimer = setTimeout(checkPhysicalDrain, 15);
-          } else {
-            try {
-              dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
-            } catch (e) {}
-            renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-            setTimeout(resetTransferUI, 500);
-          }
-        }
-        checkPhysicalDrain();
-      }
-    } catch (err) {
-      setTimeout(() => {
-        isPumping = false;
-        pumpPipeline();
-      }, 35);
-    } finally {
-      isPumping = false;
-    }
+  function readNextChunk() {
+    if (isTransferAborted) return;
+    const slice = file.slice(offset, offset + CHUNK_SIZE);
+    fileReader.readAsArrayBuffer(slice);
   }
 
-  setTimeout(pumpPipeline, 40);
+  fileReader.onload = (e) => {
+    if (isTransferAborted) return;
+
+    const buffer = e.target.result;
+    dataChannel.send(buffer);
+
+    offset += buffer.byteLength;
+    bytesSamplePeriod += buffer.byteLength;
+
+    const now = performance.now();
+    const timeDiff = (now - lastProgressSentTime) / 1000;
+
+    if (timeDiff >= 0.1 || offset >= file.size) {
+      const bytesPerSec = bytesSamplePeriod / (timeDiff || 0.001);
+      const speedMB = bytesPerSec / (1024 * 1024);
+      const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+      const remainingBytes = Math.max(0, file.size - offset);
+      let etaStr = "ETA: --";
+      if (bytesPerSec > 0 && remainingBytes > 0) {
+        const etaSec = Math.round(remainingBytes / bytesPerSec);
+        etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
+      }
+
+      const pct = Math.min(100, Math.floor((offset / file.size) * 100));
+
+      progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
+      progressPercent.innerText = `${pct}%`;
+      progressBarFill.style.width = `${pct}%`;
+      progressSpeed.innerText = speedStr;
+      progressETA.innerText = etaStr;
+
+      try {
+        dataChannel.send(JSON.stringify({
+          type: "file-progress",
+          transferId: currentTransferId,
+          pct: pct,
+          speed: speedStr
+        }));
+      } catch (err) {}
+
+      bytesSamplePeriod = 0;
+      lastProgressSentTime = now;
+    }
+
+    if (offset < file.size) {
+      if (dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+        dataChannel.onbufferedamountlow = () => {
+          dataChannel.onbufferedamountlow = null;
+          readNextChunk();
+        };
+      } else {
+        readNextChunk();
+      }
+    } else {
+      function checkDrain() {
+        if (isTransferAborted) return;
+        if (dataChannel.bufferedAmount > 0) {
+          activeDrainTimer = setTimeout(checkDrain, 20);
+        } else {
+          try {
+            dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+          } catch (e) {}
+          renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
+          setTimeout(resetTransferUI, 500);
+        }
+      }
+      checkDrain();
+    }
+  };
+
+  readNextChunk();
 }
 
 window.triggerFileDownload = function(fileId) {
@@ -891,7 +862,6 @@ connectPinBtn.addEventListener("click", () => {
   connectToPeer(manualPinInput.value.trim());
 });
 
-// Auto-join from URL hash if opened via QR code
 if (window.location.hash.includes("pin=")) {
   const hashPin = window.location.hash.split("pin=")[1].slice(0, 6);
   if (/^\d{6}$/.test(hashPin)) {
@@ -899,6 +869,13 @@ if (window.location.hash.includes("pin=")) {
     setTimeout(() => connectToPeer(hashPin), 500);
   }
 }
+
+// Page refresh / unload par server ko immediate cleanup message bhejna
+window.addEventListener('beforeunload', () => {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'hangup' }));
+  }
+});
 
 feedbackForm.addEventListener("submit", async (e) => {
   e.preventDefault();

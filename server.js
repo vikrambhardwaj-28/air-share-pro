@@ -13,75 +13,110 @@ const server = http.createServer(app);
 app.enable('trust proxy');
 app.disable('x-powered-by');
 
-// Health Check & Robots
 app.get('/ping', (req, res) => res.status(200).send('pong'));
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
   res.send('User-agent: *\nAllow: /\n');
 });
 
-// Static files serve
-app.use(express.static(path.join(__dirname, 'public'), {
-  maxAge: '1d'
-}));
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
 
-// ==========================================
-// PEHLE CODE KA EXACT FAST ROOM ENGINE
-// ==========================================
 const rooms = new Map();
 const wss = new WebSocketServer({ server, path: '/signal' });
 
 function send(ws, payload) {
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  }
 }
 
-function leave(ws) {
+function cleanClientFromRoom(ws) {
   if (!ws.room) return;
-  const clients = rooms.get(ws.room);
-  clients?.delete(ws);
-  for (const peer of clients || []) send(peer, { type: 'peer-left' });
-  if (!clients?.size) rooms.delete(ws.room);
+  const pin = ws.room;
+  const clients = rooms.get(pin);
+  if (clients) {
+    clients.delete(ws);
+    for (const peer of clients) {
+      send(peer, { type: 'peer-left' });
+    }
+    if (clients.size === 0) {
+      rooms.delete(pin);
+    }
+  }
   ws.room = null;
 }
 
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
     if (msg.type === 'join') {
-      const pin = String(msg.pin || '');
-      if (!/^\d{6}$/.test(pin)) return send(ws, { type: 'error', message: 'Valid 6-digit PIN daalein.' });
-      
-      leave(ws);
-      const clients = rooms.get(pin) || new Set();
-      if (clients.size >= 2) return send(ws, { type: 'error', message: 'Is PIN par room already full hai.' });
+      const pin = String(msg.pin || '').trim();
+      if (!/^\d{6}$/.test(pin)) {
+        return send(ws, { type: 'error', message: 'Valid 6-digit PIN enter karein.' });
+      }
 
-      rooms.set(pin, clients);
+      cleanClientFromRoom(ws);
+
+      let clients = rooms.get(pin);
+      if (!clients) {
+        clients = new Set();
+        rooms.set(pin, clients);
+      }
+
+      if (clients.size >= 2) {
+        return send(ws, { type: 'error', message: 'Is PIN par room already full hai.' });
+      }
+
       ws.room = pin;
       clients.add(ws);
 
-      // Pehla join karne wala initiator hoga
-      send(ws, { type: 'joined', initiator: clients.size === 1 });
+      const isInitiator = clients.size === 1;
+      send(ws, { type: 'joined', initiator: isInitiator, pin });
 
-      // Jaise hi doosra aaya, bina kisi delay ke turant peer-ready trigger hoga
       if (clients.size === 2) {
-        for (const peer of clients) send(peer, { type: 'peer-ready' });
+        for (const peer of clients) {
+          send(peer, { type: 'peer-ready' });
+        }
       }
       return;
     }
 
     if (['offer', 'answer', 'candidate', 'hangup'].includes(msg.type) && ws.room) {
-      for (const peer of rooms.get(ws.room) || []) {
-        if (peer !== ws) send(peer, msg);
+      const clients = rooms.get(ws.room);
+      if (clients) {
+        for (const peer of clients) {
+          if (peer !== ws && peer.readyState === WebSocket.OPEN) {
+            peer.send(raw);
+          }
+        }
       }
     }
   });
 
-  ws.on('close', () => leave(ws));
+  ws.on('close', () => cleanClientFromRoom(ws));
+  ws.on('error', () => cleanClientFromRoom(ws));
 });
+
+// Stale connection detector (every 10s)
+const heartbeat = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) {
+      cleanClientFromRoom(ws);
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 10000);
+
+wss.on('close', () => clearInterval(heartbeat));
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Air Share Pro running at http://localhost:${PORT}`);
+  console.log(`Air Share Pro Conduit active on http://localhost:${PORT}`);
 });
