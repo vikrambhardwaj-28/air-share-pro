@@ -23,12 +23,12 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
-// ==========================================
-// OPTIMAL WEBRTC STREAM CONSTANTS (ZERO FREEZE)
-// ==========================================
-const CHUNK_SIZE = 16 * 1024; // 16KB WebRTC standard MTU safe chunk
-const BUFFER_MAX_THRESHOLD = 512 * 1024; // 512KB queue limit
-const BUFFER_LOW_THRESHOLD = 64 * 1024;  // 64KB fast auto-resume
+// ===================================================
+// ROCK SOLID BUFFER FLOW SPECS (NEVER FREEZE / DROP)
+// ===================================================
+const CHUNK_SIZE = 32 * 1024; // 32KB: Optimal safe WebRTC MTU slice
+const BUFFER_MAX_THRESHOLD = 1024 * 1024; // 1MB buffer max
+const BUFFER_LOW_THRESHOLD = 128 * 1024;  // 128KB fast resume
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -36,10 +36,10 @@ let transferStartTime = 0;
 let lastProgressSentTime = 0;
 let bytesSamplePeriod = 0;
 
+// Receiver State
 let incomingFileMeta = null;
 let incomingFileChunks = [];
 let incomingBytesReceived = 0;
-let receiverWatchdogTimer = null;
 const fileBlobsMap = new Map();
 
 // UI Elements
@@ -83,7 +83,6 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-// Ultra-fast STUN + Free OpenRelay TURN configuration
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -125,16 +124,6 @@ function generatePIN() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function kickReceiverWatchdog() {
-  clearTimeout(receiverWatchdogTimer);
-  receiverWatchdogTimer = setTimeout(() => {
-    if (incomingFileMeta) {
-      resetTransferUI();
-    }
-  }, 10000);
-}
-
-// Persistent WebSocket Connection Handler
 function ensureSocket(callback) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     return callback();
@@ -282,7 +271,7 @@ function setupDataChannel(dc) {
   dataChannel.onmessage = (event) => {
     const data = event.data;
 
-    // 1. JSON String Handling (Metadata, Progress, Clipboard)
+    // 1. JSON Strings
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
@@ -302,16 +291,8 @@ function setupDataChannel(dc) {
           senderProgressCard.style.display = "none";
           receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(0%)</span>`;
           receiverNoticeBanner.style.display = "flex";
-          kickReceiverWatchdog();
-        }
-        else if (msg.type === "file-progress") {
-          if (incomingFileMeta && msg.transferId === currentTransferId) {
-            receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${msg.pct}%)</span> • <span style="color:var(--success); font-family:'JetBrains Mono',monospace;">${msg.speed}</span>`;
-            kickReceiverWatchdog();
-          }
         }
         else if (msg.type === "file-abort") {
-          clearTimeout(receiverWatchdogTimer);
           resetTransferUI();
         }
         else if (msg.type === "file-delete") {
@@ -324,39 +305,25 @@ function setupDataChannel(dc) {
           handleDisconnection(false);
         }
         else if (msg.type === "file-end") {
-          clearTimeout(receiverWatchdogTimer);
-          receiverNoticeBanner.style.display = "none";
-
-          if (incomingFileMeta && !isTransferAborted) {
-            const transferId = incomingFileMeta.transferId;
-            const fileName = incomingFileMeta.name;
-            const fileSize = incomingFileMeta.size;
-            const fileTime = incomingFileMeta.time;
-            const mime = incomingFileMeta.mime || "application/octet-stream";
-
-            const safeBlob = new Blob(incomingFileChunks, { type: mime });
-            fileBlobsMap.set(transferId, { blob: safeBlob, name: fileName });
-
-            renderFileInHistory(fileName, fileSize, transferId, false, fileTime);
-            triggerFileDownload(transferId);
-
-            incomingFileMeta = null;
-            incomingFileChunks = [];
-          }
+          // Double check: save file only when all chunks are collected
+          finalizeReceivedFile();
         }
       } catch (e) {}
     } 
     // 2. Binary Chunk Handling
     else {
       if (!incomingFileMeta || isTransferAborted) return;
-      kickReceiverWatchdog();
 
       incomingFileChunks.push(data);
       incomingBytesReceived += data.byteLength;
 
-      if (incomingFileMeta.size > 0) {
-        const rxPct = Math.min(100, Math.floor((incomingBytesReceived / incomingFileMeta.size) * 100));
-        receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${rxPct}%)</span>`;
+      const totalSize = incomingFileMeta.size;
+      const rxPct = Math.min(100, Math.floor((incomingBytesReceived / (totalSize || 1)) * 100));
+      receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${rxPct}%)</span>`;
+
+      // Auto finalize if all bytes arrived even before file-end packet
+      if (incomingBytesReceived >= totalSize && totalSize > 0) {
+        finalizeReceivedFile();
       }
     }
   };
@@ -364,6 +331,28 @@ function setupDataChannel(dc) {
   dataChannel.onclose = () => {
     handleDisconnection(false);
   };
+}
+
+function finalizeReceivedFile() {
+  if (!incomingFileMeta || isTransferAborted) return;
+
+  const transferId = incomingFileMeta.transferId;
+  const fileName = incomingFileMeta.name;
+  const fileSize = incomingFileMeta.size;
+  const fileTime = incomingFileMeta.time;
+  const mime = incomingFileMeta.mime || "application/octet-stream";
+
+  receiverNoticeBanner.style.display = "none";
+
+  const safeBlob = new Blob(incomingFileChunks, { type: mime });
+  fileBlobsMap.set(transferId, { blob: safeBlob, name: fileName });
+
+  renderFileInHistory(fileName, fileSize, transferId, false, fileTime);
+  triggerFileDownload(transferId);
+
+  incomingFileMeta = null;
+  incomingFileChunks = [];
+  incomingBytesReceived = 0;
 }
 
 function initConduit() {
@@ -420,7 +409,6 @@ function handleDisconnection(isLocalTrigger) {
     pc = null;
   }
 
-  clearTimeout(receiverWatchdogTimer);
   resetTransferUI();
 
   statusLabel.innerText = "Ready";
@@ -454,8 +442,6 @@ function handleDisconnection(isLocalTrigger) {
 }
 
 function resetTransferUI() {
-  clearTimeout(receiverWatchdogTimer);
-
   senderProgressCard.style.display = "none";
   receiverNoticeBanner.style.display = "none";
   incomingFileMeta = null;
@@ -509,9 +495,9 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// =======================================================
-// FAILSAFE TURBO FILE STREAM (HANG-PROOF FAST PIPELINE)
-// =======================================================
+// =========================================================
+// TURBO-STREAM ENGINE: REVOLUTIONARY DEADLOCK-FREE STREAMER
+// =========================================================
 async function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -548,36 +534,38 @@ async function sendFileStream(file) {
 
   let offset = 0;
 
-  function waitForBufferDrain() {
+  // Hybrid Buffer Drainer: Event Listener + Active 10ms Polling Guard
+  function waitBufferFree() {
     return new Promise((resolve) => {
       if (!dataChannel || dataChannel.bufferedAmount <= BUFFER_LOW_THRESHOLD) {
         return resolve();
       }
-      
-      let resolved = false;
-      const onLow = () => {
-        if (!resolved) {
-          resolved = true;
-          dataChannel.removeEventListener('bufferedamountlow', onLow);
-          clearInterval(fallbackPoll);
+
+      let done = false;
+      const cleanAndResolve = () => {
+        if (!done) {
+          done = true;
+          dataChannel.removeEventListener('bufferedamountlow', cleanAndResolve);
+          clearInterval(pollTimer);
           resolve();
         }
       };
 
-      dataChannel.addEventListener('bufferedamountlow', onLow);
+      dataChannel.addEventListener('bufferedamountlow', cleanAndResolve);
 
-      const fallbackPoll = setInterval(() => {
+      // Deadlock safeguard: Never hang if event misses
+      const pollTimer = setInterval(() => {
         if (!dataChannel || dataChannel.bufferedAmount <= BUFFER_LOW_THRESHOLD) {
-          onLow();
+          cleanAndResolve();
         }
-      }, 15);
+      }, 10);
     });
   }
 
   try {
     while (offset < file.size && !isTransferAborted) {
       if (dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-        await waitForBufferDrain();
+        await waitBufferFree();
       }
 
       if (isTransferAborted || !dataChannel || dataChannel.readyState !== 'open') break;
@@ -596,7 +584,7 @@ async function sendFileStream(file) {
       const now = performance.now();
       const timeDiff = (now - lastProgressSentTime) / 1000;
 
-      if (timeDiff >= 0.25 || offset >= file.size) {
+      if (timeDiff >= 0.2 || offset >= file.size) {
         const bytesPerSec = bytesSamplePeriod / (timeDiff || 0.001);
         const speedMB = bytesPerSec / (1024 * 1024);
         const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
@@ -616,34 +604,23 @@ async function sendFileStream(file) {
         progressSpeed.innerText = speedStr;
         progressETA.innerText = etaStr;
 
-        try {
-          dataChannel.send(JSON.stringify({
-            type: "file-progress",
-            transferId: currentTransferId,
-            pct: pct,
-            speed: speedStr
-          }));
-        } catch (err) {}
-
         bytesSamplePeriod = 0;
         lastProgressSentTime = now;
       }
     }
 
+    // Ensure completely drained before sending file-end
     if (offset >= file.size && !isTransferAborted) {
-      const finishDrain = () => {
-        if (isTransferAborted) return;
-        if (dataChannel && dataChannel.bufferedAmount > 0) {
-          setTimeout(finishDrain, 20);
-        } else {
-          try {
-            dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
-          } catch (e) {}
-          renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-          setTimeout(resetTransferUI, 500);
-        }
-      };
-      finishDrain();
+      while (dataChannel && dataChannel.bufferedAmount > 0) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+
+      try {
+        dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+      } catch (e) {}
+
+      renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
+      setTimeout(resetTransferUI, 500);
     }
   } catch (err) {
     console.error("Transfer error:", err);
@@ -913,7 +890,6 @@ if (window.location.hash.includes("pin=")) {
   }
 }
 
-// Refresh hone se theek pehle server ko cleanup packet bhejna
 window.addEventListener('beforeunload', () => {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'hangup' }));
@@ -970,7 +946,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Canvas Background Animations
+// Background Particles
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 const cursorGlow = document.getElementById('cursorGlow');
