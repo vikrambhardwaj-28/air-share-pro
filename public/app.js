@@ -23,10 +23,12 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
-// ========================================================
-// STRICT 1:1 PACKET-ACK PIPELINE (ZERO CHOKE, 100% SYNC)
-// ========================================================
-const CHUNK_SIZE = 16 * 1024; // 16KB WebRTC Safe Packet
+// ==========================================
+// BULLETPROOF BUFFERED PIPELINE CONSTANTS
+// ==========================================
+const CHUNK_SIZE = 16384; // 16 KB (WebRTC safe payload)
+const MAX_BUFFER = 1048576; // 1 MB (Buffer ceiling)
+const LOW_WATERMARK = 262144; // 256 KB (Fast resume)
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -39,9 +41,6 @@ let incomingFileMeta = null;
 let incomingFileChunks = [];
 let incomingBytesReceived = 0;
 const fileBlobsMap = new Map();
-
-// Global ACK resolver
-let ackPacketResolver = null;
 
 // UI Elements
 const statusLabel = document.getElementById("statusLabel");
@@ -129,7 +128,6 @@ function ensureSocket(callback) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     return callback();
   }
-
   if (socket) {
     try { socket.close(); } catch (e) {}
   }
@@ -162,7 +160,6 @@ function signal(message) {
 function joinRoom(pin) {
   currentActivePin = pin;
   statusLabel.innerText = "Connecting…";
-
   ensureSocket(() => {
     signal({ type: 'join', pin });
   });
@@ -252,6 +249,7 @@ async function handleSignal(msg) {
 function setupDataChannel(dc) {
   dataChannel = dc;
   dataChannel.binaryType = "arraybuffer";
+  dataChannel.bufferedAmountLowThreshold = LOW_WATERMARK;
 
   dataChannel.onopen = () => {
     connectPinBtn.disabled = false;
@@ -274,13 +272,7 @@ function setupDataChannel(dc) {
       try {
         const msg = JSON.parse(data);
 
-        if (msg.type === "chunk-ack") {
-          if (ackPacketResolver) {
-            ackPacketResolver();
-            ackPacketResolver = null;
-          }
-        }
-        else if (msg.type === "clipboard") {
+        if (msg.type === "clipboard") {
           isRemoteTyping = true;
           clipboardArea.value = msg.text;
           setTimeout(() => { isRemoteTyping = false; }, 35);
@@ -295,8 +287,6 @@ function setupDataChannel(dc) {
           senderProgressCard.style.display = "none";
           receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(0%)</span>`;
           receiverNoticeBanner.style.display = "flex";
-
-          dataChannel.send(JSON.stringify({ type: "chunk-ack" }));
         }
         else if (msg.type === "file-abort") {
           resetTransferUI();
@@ -315,7 +305,7 @@ function setupDataChannel(dc) {
         }
       } catch (e) {}
     } 
-    // 2. Binary Chunk Handling
+    // 2. Binary Packets
     else {
       if (!incomingFileMeta || isTransferAborted) return;
 
@@ -325,10 +315,6 @@ function setupDataChannel(dc) {
       const totalSize = incomingFileMeta.size;
       const rxPct = Math.min(100, Math.floor((incomingBytesReceived / (totalSize || 1)) * 100));
       receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${rxPct}%)</span>`;
-
-      try {
-        dataChannel.send(JSON.stringify({ type: "chunk-ack" }));
-      } catch (err) {}
 
       if (incomingBytesReceived >= totalSize && totalSize > 0) {
         finalizeReceivedFile();
@@ -455,10 +441,6 @@ function resetTransferUI() {
   incomingBytesReceived = 0;
   isTransferAborted = true;
   currentTransferId = null;
-  if (ackPacketResolver) {
-    ackPacketResolver();
-    ackPacketResolver = null;
-  }
 }
 
 clipboardArea.addEventListener("input", (e) => {
@@ -506,7 +488,7 @@ cancelTransferBtn.addEventListener("click", () => {
 });
 
 // ========================================================
-// SYNC-LOCKED SENDER (ZERO FAKE SPEED, TRUE PROGRESS)
+// INDUSTRY STANDARD BUFFERED PIPELINE (FREEZE-PROOF)
 // ========================================================
 async function sendFileStream(file) {
   isTransferAborted = false;
@@ -518,7 +500,7 @@ async function sendFileStream(file) {
   progressBytesRatio.innerText = `0 B / ${formatBytes(file.size)}`;
   progressPercent.innerText = "0%";
   progressBarFill.style.width = "0%";
-  progressSpeed.innerText = "Connecting...";
+  progressSpeed.innerText = "Transferring...";
   progressETA.innerText = "ETA: --";
 
   transferStartTime = performance.now();
@@ -526,26 +508,6 @@ async function sendFileStream(file) {
   bytesSamplePeriod = 0;
 
   fileBlobsMap.set(currentTransferId, { blob: file, name: file.name });
-
-  function waitForReceiverAck() {
-    return new Promise((resolve) => {
-      let resolved = false;
-      ackPacketResolver = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(fallback);
-          resolve();
-        }
-      };
-      const fallback = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          ackPacketResolver = null;
-          resolve();
-        }
-      }, 1000);
-    });
-  }
 
   try {
     dataChannel.send(JSON.stringify({
@@ -562,13 +524,41 @@ async function sendFileStream(file) {
     return;
   }
 
-  await waitForReceiverAck();
-
   let offset = 0;
+
+  function waitBufferAvailable() {
+    return new Promise((resolve) => {
+      if (!dataChannel || dataChannel.bufferedAmount <= LOW_WATERMARK) {
+        return resolve();
+      }
+
+      let done = false;
+      const onLow = () => {
+        if (!done) {
+          done = true;
+          dataChannel.removeEventListener('bufferedamountlow', onLow);
+          clearInterval(poll);
+          resolve();
+        }
+      };
+
+      dataChannel.addEventListener('bufferedamountlow', onLow);
+
+      const poll = setInterval(() => {
+        if (!dataChannel || dataChannel.bufferedAmount <= LOW_WATERMARK) {
+          onLow();
+        }
+      }, 15);
+    });
+  }
 
   try {
     while (offset < file.size && !isTransferAborted) {
       if (isTransferAborted || !dataChannel || dataChannel.readyState !== 'open') break;
+
+      if (dataChannel.bufferedAmount > MAX_BUFFER) {
+        await waitBufferAvailable();
+      }
 
       const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
       const chunkBlob = file.slice(offset, sliceEnd);
@@ -577,7 +567,6 @@ async function sendFileStream(file) {
       if (isTransferAborted) break;
 
       dataChannel.send(buffer);
-      await waitForReceiverAck();
 
       offset = sliceEnd;
       bytesSamplePeriod += buffer.byteLength;
@@ -585,7 +574,7 @@ async function sendFileStream(file) {
       const now = performance.now();
       const timeDiff = (now - lastProgressSentTime) / 1000;
 
-      if (timeDiff >= 0.1 || offset >= file.size) {
+      if (timeDiff >= 0.15 || offset >= file.size) {
         const bytesPerSec = bytesSamplePeriod / (timeDiff || 0.001);
         const speedMB = bytesPerSec / (1024 * 1024);
         const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
@@ -611,6 +600,10 @@ async function sendFileStream(file) {
     }
 
     if (offset >= file.size && !isTransferAborted) {
+      while (dataChannel && dataChannel.bufferedAmount > 0) {
+        await new Promise((r) => setTimeout(r, 15));
+      }
+
       try {
         dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
       } catch (e) {}
@@ -942,7 +935,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Canvas Background Animations
+// Canvas Background
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 const cursorGlow = document.getElementById('cursorGlow');
