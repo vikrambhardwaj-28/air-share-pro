@@ -1,3 +1,8 @@
+sessionStorage.clear();
+if (window.location.hash) {
+  history.replaceState(null, null, window.location.pathname);
+}
+
 let myPin = "";
 let peer = null;
 let dataConn = null;
@@ -15,9 +20,9 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.16;
 const SYNC_DURATION = 0.10;
 
-// Golden high-speed cellular streaming parameters
-const CHUNK_SIZE = 64 * 1024; // 64KB for zero packet drop
-const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024; // 2MB streaming window
+// High-speed chunk & backpressure sizing
+const CHUNK_SIZE = 64 * 1024;
+const BUFFER_MAX_THRESHOLD = 1024 * 1024;
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -28,6 +33,7 @@ let activeReader = null;
 let activeDrainTimer = null;
 let activeSliceCallback = null;
 
+// Receiver state
 let incomingFileMeta = null;
 let incomingFileChunks = [];
 let incomingBytesReceived = 0;
@@ -75,12 +81,12 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-// Free high-priority Global STUN + OpenRelay TURN servers (Airtel vs Jio bypass)
+// STUN + OpenRelay TURN servers for symmetric NAT penetration (Airtel vs Jio)
 const GLOBAL_ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
-  { urls: "stun:global.stun.twilio.com:3478" },
   {
     urls: "turn:openrelay.metered.ca:80",
     username: "openrelayproject",
@@ -134,9 +140,10 @@ function kickReceiverWatchdog() {
       console.warn("Watchdog timeout triggered. Clearing hung state.");
       resetTransferUI();
     }
-  }, 7000);
+  }, 8000);
 }
 
+// Resilient Peer Initialization (Primary: Self-hosted, Fallback: Cloud)
 function initConduit() {
   myPin = generatePIN();
   pinDisplay.innerText = myPin;
@@ -156,20 +163,22 @@ function initConduit() {
     try { peer.destroy(); } catch (e) {}
   }
 
-  // Consistent Room ID: airshare-XXXXXX
+  let isConnectedToSignal = false;
+
+  // Attempt 1: Local / Render PeerServer
   peer = new Peer(`airshare-${myPin}`, {
     host: window.location.hostname,
-    port: window.location.port || (window.location.protocol === "https:" ? 443 : 80),
-    path: "/peerjs",
-    secure: window.location.protocol === "https:",
+    port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80),
+    path: '/peerjs',
+    secure: window.location.protocol === 'https:',
     config: {
       iceServers: GLOBAL_ICE_SERVERS,
-      iceCandidatePoolSize: 10,
-      sdpSemantics: "unified-plan"
+      iceCandidatePoolSize: 10
     }
   });
 
-  peer.on("open", () => {
+  peer.on("open", (id) => {
+    isConnectedToSignal = true;
     statusLabel.innerText = "Ready";
     statusDot.style.background = "var(--success)";
   });
@@ -178,9 +187,38 @@ function initConduit() {
     setupDataConnection(conn);
   });
 
+  // Attempt 2: Auto fallback to high-availability PeerJS cloud if Render socket drops
+  function activateFallbackCloud() {
+    if (isConnectedToSignal) return;
+    console.warn("Self-hosted signal delayed. Switching to Cloud Peer Mesh...");
+    if (peer) {
+      try { peer.destroy(); } catch (e) {}
+    }
+    peer = new Peer(`airshare-${myPin}`, {
+      config: {
+        iceServers: GLOBAL_ICE_SERVERS,
+        iceCandidatePoolSize: 10
+      }
+    });
+
+    peer.on("open", () => {
+      isConnectedToSignal = true;
+      statusLabel.innerText = "Ready (Relay)";
+      statusDot.style.background = "var(--success)";
+    });
+
+    peer.on("connection", (conn) => setupDataConnection(conn));
+    peer.on("error", (err) => console.error("Signal Fallback Error:", err));
+  }
+
+  const fallbackTimer = setTimeout(activateFallbackCloud, 2500);
+
   peer.on("error", (err) => {
-    console.error(err);
-    if (err.type === "peer-unavailable") {
+    console.warn("PeerJS Notice:", err);
+    if (!isConnectedToSignal) {
+      clearTimeout(fallbackTimer);
+      activateFallbackCloud();
+    } else if (err.type === "peer-unavailable") {
       alert("The remote device is offline or the PIN is incorrect.");
       handleDisconnection(true);
     }
@@ -191,10 +229,8 @@ function connectToPeer(targetPin) {
   if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
   statusLabel.innerText = `Connecting...`;
 
-  // Raw WebRTC without buggy wrappers
   const conn = peer.connect(`airshare-${targetPin}`, { 
-    reliable: true,
-    serialization: "none"
+    reliable: true
   });
   setupDataConnection(conn);
 }
@@ -219,7 +255,7 @@ function setupDataConnection(conn) {
   });
 
   dataConn.on("data", (data) => {
-    // 1. JSON Strings
+    // 1. JSON String Control Messages
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
@@ -227,7 +263,7 @@ function setupDataConnection(conn) {
         if (msg.type === "clipboard") {
           isRemoteTyping = true;
           clipboardArea.value = msg.text;
-          setTimeout(() => { isRemoteTyping = false; }, 40);
+          setTimeout(() => { isRemoteTyping = false; }, 35);
         } 
         else if (msg.type === "file-start") {
           incomingFileMeta = msg;
@@ -242,11 +278,16 @@ function setupDataConnection(conn) {
           kickReceiverWatchdog();
 
           try {
-            dataConn.send(JSON.stringify({ type: "file-start-ack", transferId: msg.transferId }));
+            dataConn.send(JSON.stringify({
+              type: "file-start-ack",
+              transferId: msg.transferId
+            }));
           } catch (e) {}
         }
         else if (msg.type === "file-start-ack") {
-          if (activeSliceCallback) activeSliceCallback();
+          if (activeSliceCallback) {
+            activeSliceCallback();
+          }
         }
         else if (msg.type === "file-progress") {
           if (incomingFileMeta && msg.transferId === currentTransferId) {
@@ -289,7 +330,7 @@ function setupDataConnection(conn) {
           }
         }
       } catch (e) {
-        console.error("Control parsing error:", e);
+        console.error("Control packet error:", e);
       }
     } 
     // 2. Binary Packets
@@ -382,7 +423,7 @@ function resetTransferUI() {
   currentTransferId = null;
 }
 
-// Realtime live clipboard with anti-echo protection
+// Live Shared Clipboard with anti-echo protection
 clipboardArea.addEventListener("input", (e) => {
   if (isRemoteTyping) return;
   if (dataConn && dataConn.open) {
@@ -400,7 +441,7 @@ pasteDeviceBtn.addEventListener("click", async () => {
       dataConn.send(JSON.stringify({ type: "clipboard", text }));
     }
   } catch (err) {
-    alert("Clipboard read permission required.");
+    alert("Clipboard read permission is required to paste.");
   }
 });
 
@@ -457,7 +498,7 @@ function sendFileStream(file) {
       time: fileTime
     }));
   } catch (e) {
-    alert("Peer transmission failed. Please reconnect.");
+    alert("Connection failed. Please re-pair devices.");
     resetTransferUI();
     return;
   }
@@ -554,7 +595,7 @@ function sendFileStream(file) {
         };
       }
     } catch (err) {
-      console.error("Slice retry:", err);
+      console.error("Transmission error, retrying slice:", err);
       setTimeout(readNextSlice, 40);
     }
   };
@@ -566,7 +607,7 @@ function sendFileStream(file) {
 
   setTimeout(() => {
     if (activeSliceCallback) activeSliceCallback();
-  }, 600);
+  }, 500);
 }
 
 window.triggerFileDownload = function(fileId) {
@@ -639,7 +680,7 @@ function updateHistoryEmptyState() {
   }
 }
 
-// Audio Engine
+// Acoustic FSK Sound Engine
 function getAudioContext() {
   if (!audioCtx) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -874,7 +915,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Canvas particle animation
+// Background particle animation
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 const cursorGlow = document.getElementById('cursorGlow');
