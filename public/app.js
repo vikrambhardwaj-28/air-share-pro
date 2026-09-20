@@ -21,11 +21,11 @@ const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
 // ==========================================
-// TURBO PIPELINE SPECS
+// MAX SPEED TURBO PIPELINE SPECS
 // ==========================================
-const CHUNK_SIZE = 128 * 1024; // 128KB optimal chunk
-const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024; // 2MB streaming ceiling
-const BUFFER_LOW_THRESHOLD = 256 * 1024; // 256KB wakeup watermark
+const CHUNK_SIZE = 256 * 1024; // 256KB: Maximum throughput chunk
+const BUFFER_MAX_THRESHOLD = 8 * 1024 * 1024; // 8MB high-bandwidth pipeline
+const BUFFER_LOW_THRESHOLD = 1024 * 1024; // 1MB wakeup threshold
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -83,7 +83,7 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-// High-priority Global STUN + Multi-Port OpenRelay TURN (Airtel vs Jio Carrier Traversal)
+// Ultra-fast Global STUN + OpenRelay TURN servers
 const GLOBAL_ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
@@ -139,13 +139,13 @@ function kickReceiverWatchdog() {
   clearTimeout(receiverWatchdogTimer);
   receiverWatchdogTimer = setTimeout(() => {
     if (incomingFileMeta) {
-      console.warn("Watchdog timeout triggered. Clearing hung state.");
+      console.warn("Watchdog timeout triggered. Resetting receiver state.");
       resetTransferUI();
     }
   }, 7000);
 }
 
-// 100% Reliable Unified Conduit Initialization
+// Fast Unified Initialization
 function initConduit() {
   myPin = generatePIN();
   pinDisplay.innerText = myPin;
@@ -165,7 +165,6 @@ function initConduit() {
     try { peer.destroy(); } catch (e) {}
   }
 
-  // Consistent Global Signaling (Zero split-brain between devices)
   peer = new Peer(`airshare-${myPin}`, {
     config: {
       iceServers: GLOBAL_ICE_SERVERS,
@@ -174,7 +173,7 @@ function initConduit() {
     }
   });
 
-  peer.on("open", (id) => {
+  peer.on("open", () => {
     statusLabel.innerText = "Ready";
     statusDot.style.background = "var(--success)";
   });
@@ -184,7 +183,7 @@ function initConduit() {
   });
 
   peer.on("error", (err) => {
-    console.warn("Peer signal warning:", err);
+    console.warn("Peer Notice:", err);
     if (err.type === "peer-unavailable") {
       statusLabel.innerText = "Device not found";
       alert("The remote device is offline or PIN is incorrect. Please check the 6-digit code.");
@@ -193,8 +192,6 @@ function initConduit() {
   });
 }
 
-// Intelligent connection with automatic retry
-let connectRetryCount = 0;
 function connectToPeer(targetPin) {
   if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
   
@@ -207,18 +204,11 @@ function connectToPeer(targetPin) {
 
   let connectionTimeout = setTimeout(() => {
     if (!dataConn || !dataConn.open) {
-      if (connectRetryCount < 2) {
-        connectRetryCount++;
-        console.log(`Retrying handshake... attempt ${connectRetryCount}`);
-        connectToPeer(targetPin);
-      } else {
-        connectPinBtn.disabled = false;
-        connectRetryCount = 0;
-        statusLabel.innerText = "Ready";
-        alert("Connection timed out. Ensure both devices are on Air Share Pro and verify PIN.");
-      }
+      connectPinBtn.disabled = false;
+      statusLabel.innerText = "Ready";
+      alert("Connection timed out. Please verify PIN and try again.");
     }
-  }, 4000);
+  }, 4500);
 
   setupDataConnection(conn, connectionTimeout);
 }
@@ -229,7 +219,6 @@ function setupDataConnection(conn, timeoutToClear) {
   dataConn.on("open", () => {
     if (timeoutToClear) clearTimeout(timeoutToClear);
     connectPinBtn.disabled = false;
-    connectRetryCount = 0;
 
     stopListeningAudio();
     statusLabel.innerText = "Connected with Peer";
@@ -313,7 +302,7 @@ function setupDataConnection(conn, timeoutToClear) {
         console.error("Control packet error:", e);
       }
     } 
-    // 2. Binary Chunks
+    // 2. Binary Packets
     else {
       if (!incomingFileMeta || isTransferAborted) return;
       kickReceiverWatchdog();
@@ -444,7 +433,9 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// Fast Native ArrayBuffer Pumping
+// ====================================================
+// TURBO-SPEED: High-Throughput Pre-Buffering Pipeline
+// ====================================================
 function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -455,7 +446,7 @@ function sendFileStream(file) {
   progressBytesRatio.innerText = `0 B / ${formatBytes(file.size)}`;
   progressPercent.innerText = "0%";
   progressBarFill.style.width = "0%";
-  progressSpeed.innerText = "Streaming...";
+  progressSpeed.innerText = "Turbo Starting...";
   progressETA.innerText = "ETA: --";
 
   transferStartTime = performance.now();
@@ -485,17 +476,20 @@ function sendFileStream(file) {
     channel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
   }
 
-  async function pumpBatch() {
-    if (isTransferAborted || isPumpingActive) return;
-    isPumpingActive = true;
+  let isPumping = false;
+
+  async function pumpPipeline() {
+    if (isTransferAborted || isPumping) return;
+    isPumping = true;
 
     try {
+      // Loop continuously while channel has capacity
       while (offset < file.size && !isTransferAborted) {
         if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
           channel.onbufferedamountlow = () => {
             channel.onbufferedamountlow = null;
-            isPumpingActive = false;
-            pumpBatch();
+            isPumping = false;
+            pumpPipeline();
           };
           return;
         }
@@ -505,6 +499,7 @@ function sendFileStream(file) {
         const currentSliceLength = sliceEnd - offset;
         offset = sliceEnd;
 
+        // Native zero-overhead arrayBuffer stream
         const buffer = await chunkBlob.arrayBuffer();
         if (isTransferAborted) return;
 
@@ -514,7 +509,7 @@ function sendFileStream(file) {
         const now = performance.now();
         const timeDiff = (now - lastProgressSentTime) / 1000;
 
-        if (timeDiff >= 0.1 || offset >= file.size) {
+        if (timeDiff >= 0.12 || offset >= file.size) {
           const bytesPerSec = bytesSamplePeriod / timeDiff;
           const speedMB = bytesPerSec / (1024 * 1024);
           const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
@@ -548,6 +543,7 @@ function sendFileStream(file) {
         }
       }
 
+      // Check physical buffer drain before declaring completed
       if (offset >= file.size) {
         function checkPhysicalDrain() {
           if (isTransferAborted) return;
@@ -566,15 +562,15 @@ function sendFileStream(file) {
     } catch (err) {
       console.error("Turbo stream retry:", err);
       setTimeout(() => {
-        isPumpingActive = false;
-        pumpBatch();
-      }, 40);
+        isPumping = false;
+        pumpPipeline();
+      }, 35);
     } finally {
-      isPumpingActive = false;
+      isPumping = false;
     }
   }
 
-  setTimeout(pumpBatch, 50);
+  setTimeout(pumpPipeline, 40);
 }
 
 window.triggerFileDownload = function(fileId) {
