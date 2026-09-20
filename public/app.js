@@ -7,6 +7,7 @@ let myPin = "";
 let currentActivePin = "";
 let socket = null;
 let pc = null;
+let controlChannel = null;
 let dataChannel = null;
 let isInitiator = false;
 
@@ -23,26 +24,22 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
-// ====================================================
-// EXACT TURBO-SPEED PIPELINE SPECS (FROM YOUR SOURCE)
-// ====================================================
-const CHUNK_SIZE = 256 * 1024; // 256KB Maximum throughput chunk
-const BUFFER_MAX_THRESHOLD = 8 * 1024 * 1024; // 8MB high-bandwidth pipeline
-const BUFFER_LOW_THRESHOLD = 1024 * 1024; // 1MB wakeup threshold
+// ==========================================
+// PURE BINARY STREAM SPECIFICATIONS
+// ==========================================
+const CHUNK_SIZE = 32 * 1024; // 32KB Safe Payload
+const MAX_BACKPRESSURE = 512 * 1024; // 512KB Limit
 
 let isTransferAborted = false;
 let currentTransferId = null;
 let transferStartTime = 0;
 let lastProgressSentTime = 0;
 let bytesSamplePeriod = 0;
-let activeDrainTimer = null;
-let isPumpingActive = false;
 
-// Receiver state
-let incomingFileMeta = null;
-let incomingFileChunks = [];
-let incomingBytesReceived = 0;
-let receiverWatchdogTimer = null;
+// Receiver State
+let incomingMeta = null;
+let incomingBuffers = [];
+let incomingReceivedBytes = 0;
 const fileBlobsMap = new Map();
 
 // UI Elements
@@ -127,16 +124,6 @@ function generatePIN() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function kickReceiverWatchdog() {
-  clearTimeout(receiverWatchdogTimer);
-  receiverWatchdogTimer = setTimeout(() => {
-    if (incomingFileMeta) {
-      console.warn("Watchdog timeout triggered. Resetting receiver state.");
-      resetTransferUI();
-    }
-  }, 12000);
-}
-
 // Persistent Fast WebSocket
 function ensureSocket(callback) {
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -188,11 +175,20 @@ function makePeer() {
   };
 
   if (isInitiator) {
-    const dc = pc.createDataChannel("airshare-pipe", { ordered: true });
-    setupDataChannel(dc);
+    controlChannel = pc.createDataChannel("control", { ordered: true });
+    setupControlChannel(controlChannel);
+
+    dataChannel = pc.createDataChannel("data", { ordered: true });
+    setupDataChannel(dataChannel);
   } else {
     pc.ondatachannel = (e) => {
-      setupDataChannel(e.channel);
+      if (e.channel.label === "control") {
+        controlChannel = e.channel;
+        setupControlChannel(controlChannel);
+      } else if (e.channel.label === "data") {
+        dataChannel = e.channel;
+        setupDataChannel(dataChannel);
+      }
     };
   }
 
@@ -260,15 +256,9 @@ async function handleSignal(msg) {
   }
 }
 
-// ====================================================
-// EXACT RECEIVE PIPELINE FROM YOUR PROVEN CODEBASE
-// ====================================================
-function setupDataChannel(dc) {
-  dataChannel = dc;
-  dataChannel.binaryType = "arraybuffer";
-  dataChannel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
-
-  dataChannel.onopen = () => {
+// 1. Control Channel Setup (JSON metadata & clipboard)
+function setupControlChannel(cc) {
+  cc.onopen = () => {
     connectPinBtn.disabled = false;
     stopListeningAudio();
     statusLabel.innerText = "Connected with Peer";
@@ -281,103 +271,96 @@ function setupDataChannel(dc) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  dataChannel.onmessage = (event) => {
-    const data = event.data;
+  cc.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
 
-    // 1. JSON String Messages
-    if (typeof data === "string") {
-      try {
-        const msg = JSON.parse(data);
-
-        if (msg.type === "clipboard") {
-          isRemoteTyping = true;
-          clipboardArea.value = msg.text;
-          setTimeout(() => { isRemoteTyping = false; }, 35);
-        } 
-        else if (msg.type === "file-start") {
-          incomingFileMeta = msg;
-          incomingFileChunks = [];
-          incomingBytesReceived = 0;
-          currentTransferId = msg.transferId;
-          isTransferAborted = false;
-
-          senderProgressCard.style.display = "none";
-          receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(0%)</span>`;
-          receiverNoticeBanner.style.display = "flex";
-          kickReceiverWatchdog();
-        }
-        else if (msg.type === "file-progress") {
-          if (incomingFileMeta && msg.transferId === currentTransferId) {
-            receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${msg.pct}%)</span> • <span style="color:var(--success); font-family:'JetBrains Mono',monospace;">${msg.speed}</span>`;
-            kickReceiverWatchdog();
-          }
-        }
-        else if (msg.type === "file-abort") {
-          clearTimeout(receiverWatchdogTimer);
-          resetTransferUI();
-        }
-        else if (msg.type === "file-delete") {
-          const item = document.getElementById(`file-item-${msg.fileId}`);
-          if (item) item.remove();
-          fileBlobsMap.delete(msg.fileId);
-          updateHistoryEmptyState();
-        }
-        else if (msg.type === "peer-disconnect") {
-          handleDisconnection(false);
-        }
-        else if (msg.type === "file-end") {
-          clearTimeout(receiverWatchdogTimer);
-          receiverNoticeBanner.style.display = "none";
-
-          if (incomingFileMeta && !isTransferAborted) {
-            const transferId = incomingFileMeta.transferId;
-            const fileName = incomingFileMeta.name;
-            const fileSize = incomingFileMeta.size;
-            const fileTime = incomingFileMeta.time;
-            const mime = incomingFileMeta.mime || "application/octet-stream";
-
-            const safeBlob = new Blob(incomingFileChunks, { type: mime });
-            fileBlobsMap.set(transferId, { blob: safeBlob, name: fileName });
-
-            renderFileInHistory(fileName, fileSize, transferId, false, fileTime);
-            triggerFileDownload(transferId);
-
-            incomingFileMeta = null;
-            incomingFileChunks = [];
-          }
-        }
-      } catch (e) {
-        console.error("Control packet error:", e);
+      if (msg.type === "clipboard") {
+        isRemoteTyping = true;
+        clipboardArea.value = msg.text;
+        setTimeout(() => { isRemoteTyping = false; }, 35);
       }
-    } 
-    // 2. Binary Packets
-    else {
-      if (!incomingFileMeta || isTransferAborted) return;
-      kickReceiverWatchdog();
+      else if (msg.type === "file-start") {
+        incomingMeta = msg;
+        incomingBuffers = [];
+        incomingReceivedBytes = 0;
+        currentTransferId = msg.transferId;
+        isTransferAborted = false;
 
-      let chunkBuffer = null;
-      if (data instanceof ArrayBuffer) {
-        chunkBuffer = data;
-      } else if (ArrayBuffer.isView(data)) {
-        chunkBuffer = data.buffer;
+        senderProgressCard.style.display = "none";
+        receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(0%)</span>`;
+        receiverNoticeBanner.style.display = "flex";
       }
+      else if (msg.type === "file-progress") {
+        if (incomingMeta && incomingMeta.transferId === msg.transferId) {
+          receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${msg.pct}%)</span> • <span style="color:var(--success); font-family:'JetBrains Mono',monospace;">${msg.speed}</span>`;
+        }
+      }
+      else if (msg.type === "file-end") {
+        finalizeIncomingTransfer();
+      }
+      else if (msg.type === "file-abort") {
+        resetTransferUI();
+      }
+      else if (msg.type === "file-delete") {
+        const item = document.getElementById(`file-item-${msg.fileId}`);
+        if (item) item.remove();
+        fileBlobsMap.delete(msg.fileId);
+        updateHistoryEmptyState();
+      }
+      else if (msg.type === "peer-disconnect") {
+        handleDisconnection(false);
+      }
+    } catch (e) {}
+  };
 
-      if (chunkBuffer) {
-        incomingFileChunks.push(chunkBuffer);
-        incomingBytesReceived += chunkBuffer.byteLength;
-      }
+  cc.onclose = () => handleDisconnection(false);
+}
+
+// 2. Data Channel Setup (Raw Pure Binary Stream)
+function setupDataChannel(dc) {
+  dc.binaryType = "arraybuffer";
+
+  dc.onmessage = (event) => {
+    if (!incomingMeta || isTransferAborted) return;
+
+    incomingBuffers.push(event.data);
+    incomingReceivedBytes += event.data.byteLength;
+
+    if (incomingMeta.size > 0 && incomingReceivedBytes >= incomingMeta.size) {
+      finalizeIncomingTransfer();
     }
   };
 
-  dataChannel.onclose = () => {
-    handleDisconnection(false);
-  };
+  dc.onclose = () => handleDisconnection(false);
 }
 
-// ====================================================
-// EXACT TURBO SENDER STREAM (FROM YOUR PROVEN CODEBASE)
-// ====================================================
-function sendFileStream(file) {
+function finalizeIncomingTransfer() {
+  if (!incomingMeta || isTransferAborted) return;
+
+  const { transferId, name, size, time, mime } = incomingMeta;
+  receiverNoticeBanner.style.display = "none";
+
+  const fileBlob = new Blob(incomingBuffers, { type: mime || "application/octet-stream" });
+  fileBlobsMap.set(transferId, { blob: fileBlob, name });
+
+  renderFileInHistory(name, size, transferId, false, time);
+  triggerFileDownload(transferId);
+
+  incomingMeta = null;
+  incomingBuffers = [];
+  incomingReceivedBytes = 0;
+}
+
+// ==========================================
+// UNTHROTTLED RELIABLE SENDER STREAM
+// ==========================================
+async function sendFileStream(file) {
+  if (!controlChannel || controlChannel.readyState !== "open" || !dataChannel || dataChannel.readyState !== "open") {
+    alert("Connection is not ready.");
+    return;
+  }
+
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
   const fileTime = getCurrentTimeStr();
@@ -387,7 +370,7 @@ function sendFileStream(file) {
   progressBytesRatio.innerText = `0 B / ${formatBytes(file.size)}`;
   progressPercent.innerText = "0%";
   progressBarFill.style.width = "0%";
-  progressSpeed.innerText = "Turbo Starting...";
+  progressSpeed.innerText = "Starting...";
   progressETA.innerText = "ETA: --";
 
   transferStartTime = performance.now();
@@ -397,7 +380,7 @@ function sendFileStream(file) {
   fileBlobsMap.set(currentTransferId, { blob: file, name: file.name });
 
   try {
-    dataChannel.send(JSON.stringify({
+    controlChannel.send(JSON.stringify({
       type: "file-start",
       transferId: currentTransferId,
       name: file.name,
@@ -406,113 +389,98 @@ function sendFileStream(file) {
       time: fileTime
     }));
   } catch (e) {
-    alert("Connection interrupted. Please reconnect.");
     resetTransferUI();
     return;
   }
 
   let offset = 0;
-  if (dataChannel) {
-    dataChannel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
-  }
 
-  let isPumping = false;
-
-  async function pumpPipeline() {
-    if (isTransferAborted || isPumping) return;
-    isPumping = true;
-
-    try {
-      while (offset < file.size && !isTransferAborted) {
-        if (dataChannel && dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-          dataChannel.onbufferedamountlow = () => {
-            dataChannel.onbufferedamountlow = null;
-            isPumping = false;
-            pumpPipeline();
+  try {
+    while (offset < file.size && !isTransferAborted) {
+      if (dataChannel.bufferedAmount > MAX_BACKPRESSURE) {
+        await new Promise((resolve) => {
+          const checkBuffer = () => {
+            if (dataChannel.bufferedAmount <= MAX_BACKPRESSURE / 2 || isTransferAborted) {
+              resolve();
+            } else {
+              setTimeout(checkBuffer, 15);
+            }
           };
-          return;
-        }
-
-        const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
-        const chunkBlob = file.slice(offset, sliceEnd);
-        const currentSliceLength = sliceEnd - offset;
-        offset = sliceEnd;
-
-        const buffer = await chunkBlob.arrayBuffer();
-        if (isTransferAborted) return;
-
-        dataChannel.send(buffer);
-        bytesSamplePeriod += currentSliceLength;
-
-        const now = performance.now();
-        const timeDiff = (now - lastProgressSentTime) / 1000;
-
-        if (timeDiff >= 0.12 || offset >= file.size) {
-          const bytesPerSec = bytesSamplePeriod / timeDiff;
-          const speedMB = bytesPerSec / (1024 * 1024);
-          const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-          const remainingBytes = Math.max(0, file.size - offset);
-          let etaStr = "ETA: --";
-          if (bytesPerSec > 0 && remainingBytes > 0) {
-            const etaSec = Math.round(remainingBytes / bytesPerSec);
-            etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
-          }
-
-          const pct = Math.min(100, Math.floor((offset / file.size) * 100));
-
-          progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
-          progressPercent.innerText = `${pct}%`;
-          progressBarFill.style.width = `${pct}%`;
-          progressSpeed.innerText = speedStr;
-          progressETA.innerText = etaStr;
-
-          try {
-            dataChannel.send(JSON.stringify({
-              type: "file-progress",
-              transferId: currentTransferId,
-              pct: pct,
-              speed: speedStr
-            }));
-          } catch (err) {}
-
-          bytesSamplePeriod = 0;
-          lastProgressSentTime = now;
-        }
+          checkBuffer();
+        });
       }
 
-      if (offset >= file.size) {
-        function checkPhysicalDrain() {
-          if (isTransferAborted) return;
-          if (dataChannel && dataChannel.bufferedAmount > 0) {
-            activeDrainTimer = setTimeout(checkPhysicalDrain, 15);
-          } else {
-            try {
-              dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
-            } catch (e) {}
-            renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-            setTimeout(resetTransferUI, 500);
-          }
+      if (isTransferAborted) break;
+
+      const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
+      const chunkBlob = file.slice(offset, sliceEnd);
+      const buffer = await chunkBlob.arrayBuffer();
+
+      if (isTransferAborted) break;
+
+      dataChannel.send(buffer);
+
+      offset = sliceEnd;
+      bytesSamplePeriod += buffer.byteLength;
+
+      const now = performance.now();
+      const timeDiff = (now - lastProgressSentTime) / 1000;
+
+      if (timeDiff >= 0.15 || offset >= file.size) {
+        const bytesPerSec = bytesSamplePeriod / (timeDiff || 0.001);
+        const speedMB = bytesPerSec / (1024 * 1024);
+        const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+        const remainingBytes = Math.max(0, file.size - offset);
+        let etaStr = "ETA: --";
+        if (bytesPerSec > 0 && remainingBytes > 0) {
+          const etaSec = Math.round(remainingBytes / bytesPerSec);
+          etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
         }
-        checkPhysicalDrain();
+
+        const pct = Math.min(100, Math.floor((offset / file.size) * 100));
+
+        progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
+        progressPercent.innerText = `${pct}%`;
+        progressBarFill.style.width = `${pct}%`;
+        progressSpeed.innerText = speedStr;
+        progressETA.innerText = etaStr;
+
+        try {
+          controlChannel.send(JSON.stringify({
+            type: "file-progress",
+            transferId: currentTransferId,
+            pct: pct,
+            speed: speedStr
+          }));
+        } catch (e) {}
+
+        bytesSamplePeriod = 0;
+        lastProgressSentTime = now;
       }
-    } catch (err) {
-      console.error("Turbo stream retry:", err);
-      setTimeout(() => {
-        isPumping = false;
-        pumpPipeline();
-      }, 35);
-    } finally {
-      isPumping = false;
     }
-  }
 
-  setTimeout(pumpPipeline, 40);
+    if (offset >= file.size && !isTransferAborted) {
+      while (dataChannel.bufferedAmount > 0) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+
+      try {
+        controlChannel.send(JSON.stringify({
+          type: "file-end",
+          transferId: currentTransferId
+        }));
+      } catch (e) {}
+
+      renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
+      setTimeout(resetTransferUI, 500);
+    }
+  } catch (err) {
+    resetTransferUI();
+  }
 }
 
-// ====================================================
-// EXACT FILE DOWNLOAD & HISTORY HANDLING (FROM YOUR PROVEN CODEBASE)
-// ====================================================
+// Download & History
 window.triggerFileDownload = function(fileId) {
   const item = fileBlobsMap.get(fileId);
   if (!item || !item.blob) return;
@@ -567,8 +535,8 @@ window.deleteFile = function(fileId) {
     fileBlobsMap.delete(fileId);
     updateHistoryEmptyState();
 
-    if (dataChannel && dataChannel.readyState === "open") {
-      dataChannel.send(JSON.stringify({ type: "file-delete", fileId: fileId }));
+    if (controlChannel && controlChannel.readyState === "open") {
+      controlChannel.send(JSON.stringify({ type: "file-delete", fileId: fileId }));
     }
   }
 };
@@ -617,9 +585,9 @@ function connectToPeer(targetPin) {
 
 window.disconnectConduit = function() {
   if (confirm("Disconnect this active session?")) {
-    if (dataChannel && dataChannel.readyState === "open") {
+    if (controlChannel && controlChannel.readyState === "open") {
       try {
-        dataChannel.send(JSON.stringify({ type: "peer-disconnect" }));
+        controlChannel.send(JSON.stringify({ type: "peer-disconnect" }));
       } catch (e) {}
     }
     signal({ type: 'hangup' });
@@ -628,6 +596,10 @@ window.disconnectConduit = function() {
 };
 
 function handleDisconnection(isLocalTrigger) {
+  if (controlChannel) {
+    try { controlChannel.close(); } catch (e) {}
+    controlChannel = null;
+  }
   if (dataChannel) {
     try { dataChannel.close(); } catch (e) {}
     dataChannel = null;
@@ -637,7 +609,6 @@ function handleDisconnection(isLocalTrigger) {
     pc = null;
   }
 
-  clearTimeout(receiverWatchdogTimer);
   resetTransferUI();
 
   statusLabel.innerText = "Ready";
@@ -671,15 +642,11 @@ function handleDisconnection(isLocalTrigger) {
 }
 
 function resetTransferUI() {
-  clearTimeout(receiverWatchdogTimer);
-  clearTimeout(activeDrainTimer);
-  isPumpingActive = false;
-
   senderProgressCard.style.display = "none";
   receiverNoticeBanner.style.display = "none";
-  incomingFileMeta = null;
-  incomingFileChunks = [];
-  incomingBytesReceived = 0;
+  incomingMeta = null;
+  incomingBuffers = [];
+  incomingReceivedBytes = 0;
   isTransferAborted = true;
   currentTransferId = null;
 }
@@ -687,9 +654,9 @@ function resetTransferUI() {
 // Live Clipboard
 clipboardArea.addEventListener("input", (e) => {
   if (isRemoteTyping) return;
-  if (dataChannel && dataChannel.readyState === "open") {
+  if (controlChannel && controlChannel.readyState === "open") {
     try {
-      dataChannel.send(JSON.stringify({ type: "clipboard", text: e.target.value }));
+      controlChannel.send(JSON.stringify({ type: "clipboard", text: e.target.value }));
     } catch (err) {}
   }
 });
@@ -698,8 +665,8 @@ pasteDeviceBtn.addEventListener("click", async () => {
   try {
     const text = await navigator.clipboard.readText();
     clipboardArea.value = text;
-    if (dataChannel && dataChannel.readyState === "open") {
-      dataChannel.send(JSON.stringify({ type: "clipboard", text }));
+    if (controlChannel && controlChannel.readyState === "open") {
+      controlChannel.send(JSON.stringify({ type: "clipboard", text }));
     }
   } catch (err) {
     alert("Clipboard permission required.");
@@ -714,16 +681,16 @@ copyDeviceBtn.addEventListener("click", async () => {
 
 fileInput.addEventListener("change", (e) => {
   const files = Array.from(e.target.files);
-  if (!files.length || !dataChannel || dataChannel.readyState !== "open") return;
+  if (!files.length) return;
   files.forEach(sendFileStream);
   fileInput.value = "";
 });
 
 cancelTransferBtn.addEventListener("click", () => {
   isTransferAborted = true;
-  if (dataChannel && dataChannel.readyState === "open") {
+  if (controlChannel && controlChannel.readyState === "open") {
     try {
-      dataChannel.send(JSON.stringify({ type: "file-abort", transferId: currentTransferId }));
+      controlChannel.send(JSON.stringify({ type: "file-abort", transferId: currentTransferId }));
     } catch (e) {}
   }
   resetTransferUI();
