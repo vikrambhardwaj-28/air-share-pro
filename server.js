@@ -13,11 +13,16 @@ const server = http.createServer(app);
 app.enable('trust proxy');
 app.disable('x-powered-by');
 
+// Health Check & SEO Endpoints
 app.get('/ping', (req, res) => res.status(200).send('pong'));
 app.get('/robots.txt', (req, res) => res.type('text/plain').send('User-agent: *\nAllow: /\n'));
 
+// Serve Static Frontend Assets
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
 
+// ==========================================
+// 6-DIGIT PIN ROOM SIGNALLING ENGINE
+// ==========================================
 const rooms = new Map();
 const wss = new WebSocketServer({ server, path: '/signal' });
 
@@ -44,9 +49,16 @@ function removeClient(ws) {
 }
 
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
   ws.on('message', (raw) => {
     let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
+    try { 
+      msg = JSON.parse(raw); 
+    } catch { 
+      return; 
+    }
 
     if (msg.type === 'join') {
       const pin = String(msg.pin || '').trim();
@@ -54,6 +66,7 @@ wss.on('connection', (ws) => {
         return send(ws, { type: 'error', message: 'Valid 6-digit PIN enter karein.' });
       }
 
+      // Purane room se turant safe remove karein
       removeClient(ws);
 
       let clients = rooms.get(pin);
@@ -72,6 +85,7 @@ wss.on('connection', (ws) => {
       const isInitiator = clients.size === 1;
       send(ws, { type: 'joined', initiator: isInitiator, pin });
 
+      // Jab dono clients present ho jayein, turant peer-ready fire hoga
       if (clients.size === 2) {
         for (const peer of clients) {
           send(peer, { type: 'peer-ready' });
@@ -80,6 +94,7 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // Direct Signalling Routing (offer, answer, candidate, hangup)
     if (['offer', 'answer', 'candidate', 'hangup'].includes(msg.type) && ws.room) {
       const clients = rooms.get(ws.room);
       if (clients) {
@@ -95,6 +110,20 @@ wss.on('connection', (ws) => {
   ws.on('close', () => removeClient(ws));
   ws.on('error', () => removeClient(ws));
 });
+
+// Stale connection detector (Har 10s par dead sockets sweep out honge)
+const heartbeat = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) {
+      removeClient(ws);
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 10000);
+
+wss.on('close', () => clearInterval(heartbeat));
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {

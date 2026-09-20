@@ -23,17 +23,18 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
-// HIGH SPEED TURBO STREAM
-const CHUNK_SIZE = 64 * 1024; // 64KB
-const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024; // 2MB Max buffer
-const BUFFER_LOW_THRESHOLD = 512 * 1024;     // 512KB Resume
+// ==========================================
+// OPTIMAL WEBRTC STREAM CONSTANTS (ZERO FREEZE)
+// ==========================================
+const CHUNK_SIZE = 16 * 1024; // 16KB WebRTC standard MTU safe chunk
+const BUFFER_MAX_THRESHOLD = 512 * 1024; // 512KB queue limit
+const BUFFER_LOW_THRESHOLD = 64 * 1024;  // 64KB fast auto-resume
 
 let isTransferAborted = false;
 let currentTransferId = null;
 let transferStartTime = 0;
 let lastProgressSentTime = 0;
 let bytesSamplePeriod = 0;
-let activeDrainTimer = null;
 
 let incomingFileMeta = null;
 let incomingFileChunks = [];
@@ -82,10 +83,16 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
+// Ultra-fast STUN + Free OpenRelay TURN configuration
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ]
 };
 
@@ -127,7 +134,7 @@ function kickReceiverWatchdog() {
   }, 10000);
 }
 
-// Single persistent WebSocket connection
+// Persistent WebSocket Connection Handler
 function ensureSocket(callback) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     return callback();
@@ -275,6 +282,7 @@ function setupDataChannel(dc) {
   dataChannel.onmessage = (event) => {
     const data = event.data;
 
+    // 1. JSON String Handling (Metadata, Progress, Clipboard)
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
@@ -337,12 +345,19 @@ function setupDataChannel(dc) {
           }
         }
       } catch (e) {}
-    } else {
+    } 
+    // 2. Binary Chunk Handling
+    else {
       if (!incomingFileMeta || isTransferAborted) return;
       kickReceiverWatchdog();
 
       incomingFileChunks.push(data);
       incomingBytesReceived += data.byteLength;
+
+      if (incomingFileMeta.size > 0) {
+        const rxPct = Math.min(100, Math.floor((incomingBytesReceived / incomingFileMeta.size) * 100));
+        receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${rxPct}%)</span>`;
+      }
     }
   };
 
@@ -440,7 +455,6 @@ function handleDisconnection(isLocalTrigger) {
 
 function resetTransferUI() {
   clearTimeout(receiverWatchdogTimer);
-  clearTimeout(activeDrainTimer);
 
   senderProgressCard.style.display = "none";
   receiverNoticeBanner.style.display = "none";
@@ -495,7 +509,9 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// ULTRA-FAST ZERO-OVERHEAD STREAM PIPELINE
+// =======================================================
+// FAILSAFE TURBO FILE STREAM (HANG-PROOF FAST PIPELINE)
+// =======================================================
 async function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -506,7 +522,7 @@ async function sendFileStream(file) {
   progressBytesRatio.innerText = `0 B / ${formatBytes(file.size)}`;
   progressPercent.innerText = "0%";
   progressBarFill.style.width = "0%";
-  progressSpeed.innerText = "Starting...";
+  progressSpeed.innerText = "Starting Turbo...";
   progressETA.innerText = "ETA: --";
 
   transferStartTime = performance.now();
@@ -532,81 +548,106 @@ async function sendFileStream(file) {
 
   let offset = 0;
 
-  while (offset < file.size && !isTransferAborted) {
-    // Flow-control pause if buffer gets filled
-    if (dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-      await new Promise((resolve) => {
-        dataChannel.onbufferedamountlow = () => {
-          dataChannel.onbufferedamountlow = null;
-          resolve();
-        };
-      });
-    }
-
-    if (isTransferAborted) break;
-
-    const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
-    const chunkBlob = file.slice(offset, sliceEnd);
-    const buffer = await chunkBlob.arrayBuffer();
-
-    if (isTransferAborted) break;
-
-    dataChannel.send(buffer);
-
-    offset = sliceEnd;
-    bytesSamplePeriod += buffer.byteLength;
-
-    const now = performance.now();
-    const timeDiff = (now - lastProgressSentTime) / 1000;
-
-    if (timeDiff >= 0.2 || offset >= file.size) {
-      const bytesPerSec = bytesSamplePeriod / (timeDiff || 0.001);
-      const speedMB = bytesPerSec / (1024 * 1024);
-      const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-      const remainingBytes = Math.max(0, file.size - offset);
-      let etaStr = "ETA: --";
-      if (bytesPerSec > 0 && remainingBytes > 0) {
-        const etaSec = Math.round(remainingBytes / bytesPerSec);
-        etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
+  function waitForBufferDrain() {
+    return new Promise((resolve) => {
+      if (!dataChannel || dataChannel.bufferedAmount <= BUFFER_LOW_THRESHOLD) {
+        return resolve();
       }
+      
+      let resolved = false;
+      const onLow = () => {
+        if (!resolved) {
+          resolved = true;
+          dataChannel.removeEventListener('bufferedamountlow', onLow);
+          clearInterval(fallbackPoll);
+          resolve();
+        }
+      };
 
-      const pct = Math.min(100, Math.floor((offset / file.size) * 100));
+      dataChannel.addEventListener('bufferedamountlow', onLow);
 
-      progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
-      progressPercent.innerText = `${pct}%`;
-      progressBarFill.style.width = `${pct}%`;
-      progressSpeed.innerText = speedStr;
-      progressETA.innerText = etaStr;
-
-      try {
-        dataChannel.send(JSON.stringify({
-          type: "file-progress",
-          transferId: currentTransferId,
-          pct: pct,
-          speed: speedStr
-        }));
-      } catch (err) {}
-
-      bytesSamplePeriod = 0;
-      lastProgressSentTime = now;
-    }
+      const fallbackPoll = setInterval(() => {
+        if (!dataChannel || dataChannel.bufferedAmount <= BUFFER_LOW_THRESHOLD) {
+          onLow();
+        }
+      }, 15);
+    });
   }
 
-  if (offset >= file.size && !isTransferAborted) {
-    function checkDrain() {
-      if (isTransferAborted) return;
-      if (dataChannel && dataChannel.bufferedAmount > 0) {
-        activeDrainTimer = setTimeout(checkDrain, 20);
-      } else {
+  try {
+    while (offset < file.size && !isTransferAborted) {
+      if (dataChannel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+        await waitForBufferDrain();
+      }
+
+      if (isTransferAborted || !dataChannel || dataChannel.readyState !== 'open') break;
+
+      const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
+      const chunkBlob = file.slice(offset, sliceEnd);
+      const buffer = await chunkBlob.arrayBuffer();
+
+      if (isTransferAborted) break;
+
+      dataChannel.send(buffer);
+
+      offset = sliceEnd;
+      bytesSamplePeriod += buffer.byteLength;
+
+      const now = performance.now();
+      const timeDiff = (now - lastProgressSentTime) / 1000;
+
+      if (timeDiff >= 0.25 || offset >= file.size) {
+        const bytesPerSec = bytesSamplePeriod / (timeDiff || 0.001);
+        const speedMB = bytesPerSec / (1024 * 1024);
+        const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+        const remainingBytes = Math.max(0, file.size - offset);
+        let etaStr = "ETA: --";
+        if (bytesPerSec > 0 && remainingBytes > 0) {
+          const etaSec = Math.round(remainingBytes / bytesPerSec);
+          etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
+        }
+
+        const pct = Math.min(100, Math.floor((offset / file.size) * 100));
+
+        progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
+        progressPercent.innerText = `${pct}%`;
+        progressBarFill.style.width = `${pct}%`;
+        progressSpeed.innerText = speedStr;
+        progressETA.innerText = etaStr;
+
         try {
-          dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
-        } catch (e) {}
-        renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-        setTimeout(resetTransferUI, 500);
+          dataChannel.send(JSON.stringify({
+            type: "file-progress",
+            transferId: currentTransferId,
+            pct: pct,
+            speed: speedStr
+          }));
+        } catch (err) {}
+
+        bytesSamplePeriod = 0;
+        lastProgressSentTime = now;
       }
     }
-    checkDrain();
+
+    if (offset >= file.size && !isTransferAborted) {
+      const finishDrain = () => {
+        if (isTransferAborted) return;
+        if (dataChannel && dataChannel.bufferedAmount > 0) {
+          setTimeout(finishDrain, 20);
+        } else {
+          try {
+            dataChannel.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+          } catch (e) {}
+          renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
+          setTimeout(resetTransferUI, 500);
+        }
+      };
+      finishDrain();
+    }
+  } catch (err) {
+    console.error("Transfer error:", err);
+    resetTransferUI();
   }
 }
 
@@ -680,7 +721,7 @@ function updateHistoryEmptyState() {
   }
 }
 
-// Acoustic Sound Pairing (FSK)
+// Acoustic Sound Pairing Engine (FSK)
 function getAudioContext() {
   if (!audioCtx) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -871,6 +912,13 @@ if (window.location.hash.includes("pin=")) {
     setTimeout(() => connectToPeer(hashPin), 500);
   }
 }
+
+// Refresh hone se theek pehle server ko cleanup packet bhejna
+window.addEventListener('beforeunload', () => {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'hangup' }));
+  }
+});
 
 feedbackForm.addEventListener("submit", async (e) => {
   e.preventDefault();
