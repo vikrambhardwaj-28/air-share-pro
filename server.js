@@ -8,6 +8,11 @@ const server = http.createServer(app);
 
 app.disable('x-powered-by');
 
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send('User-agent: *\nAllow: /\n');
+});
+
 const staticOptions = {
   maxAge: '1d',
   etag: true,
