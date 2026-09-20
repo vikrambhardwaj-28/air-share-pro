@@ -17,13 +17,15 @@ const START_TONE = 1450;
 const SEPARATOR_TONE = 1700;
 const FREQ_BASE = 2000;
 const FREQ_STEP = 150;
-const DIGIT_DURATION = 0.16;
-const SYNC_DURATION = 0.10;
+const DIGIT_DURATION = 0.12; // Fast acoustic tone
+const SYNC_DURATION = 0.08;
 
-// High-speed cellular streaming parameters
-const CHUNK_SIZE = 256 * 1024; // 256KB Chunks for maximum throughput
-const BUFFER_MAX_THRESHOLD = 4 * 1024 * 1024; // 4MB streaming window
-const BUFFER_LOW_THRESHOLD = 512 * 1024; // 512KB watermark
+// ==========================================
+// TURBO PIPELINE ENGINE (Raw MTU-Optimized)
+// ==========================================
+const CHUNK_SIZE = 128 * 1024; // 128KB: Optimal cellular throughput
+const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024; // 2MB streaming ceiling
+const BUFFER_LOW_THRESHOLD = 256 * 1024; // Wakeup pipeline at 256KB
 
 let isTransferAborted = false;
 let currentTransferId = null;
@@ -31,7 +33,7 @@ let transferStartTime = 0;
 let lastProgressSentTime = 0;
 let bytesSamplePeriod = 0;
 let activeDrainTimer = null;
-let activeSliceCallback = null;
+let isPumpingActive = false;
 
 // Receiver state
 let incomingFileMeta = null;
@@ -81,12 +83,12 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-// STUN + OpenRelay TURN servers for symmetric NAT penetration (Airtel vs Jio)
+// Fast Global STUN + OpenRelay TURN servers for NAT traversal
 const GLOBAL_ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
+  { urls: "stun:global.stun.twilio.com:3478" },
   {
     urls: "turn:openrelay.metered.ca:80",
     username: "openrelayproject",
@@ -125,7 +127,7 @@ function triggerQuantumWarp() {
   const warp = document.getElementById('quantumWarp');
   if (warp) {
     warp.classList.add('warp-active');
-    setTimeout(() => warp.classList.remove('warp-active'), 700);
+    setTimeout(() => warp.classList.remove('warp-active'), 600);
   }
 }
 
@@ -137,13 +139,13 @@ function kickReceiverWatchdog() {
   clearTimeout(receiverWatchdogTimer);
   receiverWatchdogTimer = setTimeout(() => {
     if (incomingFileMeta) {
-      console.warn("Watchdog timeout triggered. Clearing hung state.");
+      console.warn("Watchdog timeout triggered. Resetting receiver.");
       resetTransferUI();
     }
-  }, 8000);
+  }, 7000);
 }
 
-// Resilient Peer Initialization (Primary: Self-hosted, Fallback: Cloud)
+// Ultra-fast pairing initialization
 function initConduit() {
   myPin = generatePIN();
   pinDisplay.innerText = myPin;
@@ -172,11 +174,11 @@ function initConduit() {
     secure: window.location.protocol === 'https:',
     config: {
       iceServers: GLOBAL_ICE_SERVERS,
-      iceCandidatePoolSize: 10
+      iceCandidatePoolSize: 20
     }
   });
 
-  peer.on("open", (id) => {
+  peer.on("open", () => {
     isConnectedToSignal = true;
     statusLabel.innerText = "Ready";
     statusDot.style.background = "var(--success)";
@@ -188,14 +190,13 @@ function initConduit() {
 
   function activateFallbackCloud() {
     if (isConnectedToSignal) return;
-    console.warn("Self-hosted signal delayed. Switching to Cloud Peer Mesh...");
     if (peer) {
       try { peer.destroy(); } catch (e) {}
     }
     peer = new Peer(`airshare-${myPin}`, {
       config: {
         iceServers: GLOBAL_ICE_SERVERS,
-        iceCandidatePoolSize: 10
+        iceCandidatePoolSize: 20
       }
     });
 
@@ -206,18 +207,18 @@ function initConduit() {
     });
 
     peer.on("connection", (conn) => setupDataConnection(conn));
-    peer.on("error", (err) => console.error("Signal Fallback Error:", err));
+    peer.on("error", (err) => console.error("Relay mesh error:", err));
   }
 
-  const fallbackTimer = setTimeout(activateFallbackCloud, 2500);
+  const fallbackTimer = setTimeout(activateFallbackCloud, 2000);
 
   peer.on("error", (err) => {
-    console.warn("PeerJS Notice:", err);
+    console.warn("Signaling notice:", err);
     if (!isConnectedToSignal) {
       clearTimeout(fallbackTimer);
       activateFallbackCloud();
     } else if (err.type === "peer-unavailable") {
-      alert("The remote device is offline or the PIN is incorrect.");
+      alert("The target device is offline or PIN is incorrect.");
       handleDisconnection(true);
     }
   });
@@ -274,18 +275,6 @@ function setupDataConnection(conn) {
           receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(0%)</span>`;
           receiverNoticeBanner.style.display = "flex";
           kickReceiverWatchdog();
-
-          try {
-            dataConn.send(JSON.stringify({
-              type: "file-start-ack",
-              transferId: msg.transferId
-            }));
-          } catch (e) {}
-        }
-        else if (msg.type === "file-start-ack") {
-          if (activeSliceCallback) {
-            activeSliceCallback();
-          }
         }
         else if (msg.type === "file-progress") {
           if (incomingFileMeta && msg.transferId === currentTransferId) {
@@ -331,7 +320,7 @@ function setupDataConnection(conn) {
         console.error("Control packet error:", e);
       }
     } 
-    // 2. Binary Packets
+    // 2. High-Speed Binary Packets
     else {
       if (!incomingFileMeta || isTransferAborted) return;
       kickReceiverWatchdog();
@@ -406,7 +395,7 @@ function handleDisconnection(isInitiator) {
 function resetTransferUI() {
   clearTimeout(receiverWatchdogTimer);
   clearTimeout(activeDrainTimer);
-  activeSliceCallback = null;
+  isPumpingActive = false;
 
   senderProgressCard.style.display = "none";
   receiverNoticeBanner.style.display = "none";
@@ -462,7 +451,9 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// High-speed zero-timeout chunk streaming
+// ====================================================
+// TURBO-STREAM: Synchronous Non-Blocking Stream Pump
+// ====================================================
 function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -473,7 +464,7 @@ function sendFileStream(file) {
   progressBytesRatio.innerText = `0 B / ${formatBytes(file.size)}`;
   progressPercent.innerText = "0%";
   progressBarFill.style.width = "0%";
-  progressSpeed.innerText = "Starting...";
+  progressSpeed.innerText = "Streaming...";
   progressETA.innerText = "ETA: --";
 
   transferStartTime = performance.now();
@@ -492,7 +483,7 @@ function sendFileStream(file) {
       time: fileTime
     }));
   } catch (e) {
-    alert("Connection failed. Please re-pair devices.");
+    alert("Connection interrupted. Please reconnect.");
     resetTransferUI();
     return;
   }
@@ -503,38 +494,37 @@ function sendFileStream(file) {
     channel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
   }
 
-  let isPumping = false;
-
-  async function pumpPipeline() {
-    if (isTransferAborted || isPumping) return;
-    isPumping = true;
+  async function pumpBatch() {
+    if (isTransferAborted || isPumpingActive) return;
+    isPumpingActive = true;
 
     try {
       while (offset < file.size && !isTransferAborted) {
         if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
           channel.onbufferedamountlow = () => {
             channel.onbufferedamountlow = null;
-            isPumping = false;
-            pumpPipeline();
+            isPumpingActive = false;
+            pumpBatch();
           };
           return;
         }
 
         const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
         const chunkBlob = file.slice(offset, sliceEnd);
-        const currentChunkSize = sliceEnd - offset;
+        const currentSliceLength = sliceEnd - offset;
         offset = sliceEnd;
 
+        // Native zero-overhead arrayBuffer extraction
         const buffer = await chunkBlob.arrayBuffer();
         if (isTransferAborted) return;
 
         dataConn.send(buffer);
-        bytesSamplePeriod += currentChunkSize;
+        bytesSamplePeriod += currentSliceLength;
 
         const now = performance.now();
         const timeDiff = (now - lastProgressSentTime) / 1000;
 
-        if (timeDiff >= 0.12 || offset >= file.size) {
+        if (timeDiff >= 0.1 || offset >= file.size) {
           const bytesPerSec = bytesSamplePeriod / timeDiff;
           const speedMB = bytesPerSec / (1024 * 1024);
           const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
@@ -568,6 +558,7 @@ function sendFileStream(file) {
         }
       }
 
+      // Finish condition
       if (offset >= file.size) {
         function checkPhysicalDrain() {
           if (isTransferAborted) return;
@@ -584,24 +575,18 @@ function sendFileStream(file) {
         checkPhysicalDrain();
       }
     } catch (err) {
-      console.error("Transmission error:", err);
+      console.error("Turbo stream retry:", err);
       setTimeout(() => {
-        isPumping = false;
-        pumpPipeline();
-      }, 50);
+        isPumpingActive = false;
+        pumpBatch();
+      }, 40);
     } finally {
-      isPumping = false;
+      isPumpingActive = false;
     }
   }
 
-  activeSliceCallback = () => {
-    activeSliceCallback = null;
-    pumpPipeline();
-  };
-
-  setTimeout(() => {
-    if (activeSliceCallback) activeSliceCallback();
-  }, 400);
+  // Immediate start
+  setTimeout(pumpBatch, 100);
 }
 
 window.triggerFileDownload = function(fileId) {
@@ -704,23 +689,23 @@ function playTone(freq, time, duration) {
 
 emitSoundBtn.addEventListener("click", () => {
   const ctx = getAudioContext();
-  let t = ctx.currentTime + 0.1;
+  let t = ctx.currentTime + 0.05;
 
   emitSoundBtn.innerText = "Emitting...";
   emitSoundBtn.style.opacity = "0.7";
 
-  playTone(START_TONE, t, 0.25);
-  t += 0.25 + 0.05;
+  playTone(START_TONE, t, 0.20);
+  t += 0.20 + 0.03;
 
   for (let i = 0; i < myPin.length; i++) {
     const digit = parseInt(myPin[i], 10);
     const freq = FREQ_BASE + (digit * FREQ_STEP);
     playTone(freq, t, DIGIT_DURATION);
-    t += DIGIT_DURATION + 0.02;
+    t += DIGIT_DURATION + 0.015;
 
     if (i < myPin.length - 1) {
       playTone(SEPARATOR_TONE, t, SYNC_DURATION);
-      t += SYNC_DURATION + 0.02;
+      t += SYNC_DURATION + 0.015;
     }
   }
 
@@ -805,7 +790,7 @@ listenSoundBtn.addEventListener("click", async () => {
             }
           }
 
-          if (matched !== -1 && (now - lastValidDetectionTime > 80)) {
+          if (matched !== -1 && (now - lastValidDetectionTime > 70)) {
             detectedDigits.push(matched);
             lastValidDetectionTime = now;
             listenBtnText.innerText = `Receiving: ${detectedDigits.join("")}`;
@@ -820,7 +805,7 @@ listenSoundBtn.addEventListener("click", async () => {
             machineState = "WAIT_SEPARATOR";
           }
         } else if (machineState === "WAIT_SEPARATOR") {
-          if (Math.abs(peakFreq - SEPARATOR_TONE) < 50 && (now - lastValidDetectionTime > 70)) {
+          if (Math.abs(peakFreq - SEPARATOR_TONE) < 50 && (now - lastValidDetectionTime > 60)) {
             machineState = "WAIT_DIGIT";
             lastValidDetectionTime = now;
           }
