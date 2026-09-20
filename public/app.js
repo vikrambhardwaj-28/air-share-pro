@@ -20,16 +20,16 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.16;
 const SYNC_DURATION = 0.10;
 
-// High-speed chunk & backpressure sizing
-const CHUNK_SIZE = 64 * 1024;
-const BUFFER_MAX_THRESHOLD = 1024 * 1024;
+// High-speed cellular streaming parameters
+const CHUNK_SIZE = 256 * 1024; // 256KB Chunks for maximum throughput
+const BUFFER_MAX_THRESHOLD = 4 * 1024 * 1024; // 4MB streaming window
+const BUFFER_LOW_THRESHOLD = 512 * 1024; // 512KB watermark
 
 let isTransferAborted = false;
 let currentTransferId = null;
 let transferStartTime = 0;
 let lastProgressSentTime = 0;
 let bytesSamplePeriod = 0;
-let activeReader = null;
 let activeDrainTimer = null;
 let activeSliceCallback = null;
 
@@ -165,7 +165,6 @@ function initConduit() {
 
   let isConnectedToSignal = false;
 
-  // Attempt 1: Local / Render PeerServer
   peer = new Peer(`airshare-${myPin}`, {
     host: window.location.hostname,
     port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80),
@@ -187,7 +186,6 @@ function initConduit() {
     setupDataConnection(conn);
   });
 
-  // Attempt 2: Auto fallback to high-availability PeerJS cloud if Render socket drops
   function activateFallbackCloud() {
     if (isConnectedToSignal) return;
     console.warn("Self-hosted signal delayed. Switching to Cloud Peer Mesh...");
@@ -244,7 +242,7 @@ function setupDataConnection(conn) {
     triggerQuantumWarp();
 
     if (dataConn.dataChannel) {
-      dataConn.dataChannel.bufferedAmountLowThreshold = 128 * 1024;
+      dataConn.dataChannel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
     }
 
     if (pairingSection) pairingSection.classList.add("conduit-hidden");
@@ -409,10 +407,6 @@ function resetTransferUI() {
   clearTimeout(receiverWatchdogTimer);
   clearTimeout(activeDrainTimer);
   activeSliceCallback = null;
-  if (activeReader) {
-    try { activeReader.abort(); } catch (e) {}
-    activeReader = null;
-  }
 
   senderProgressCard.style.display = "none";
   receiverNoticeBanner.style.display = "none";
@@ -468,7 +462,7 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// Paced sequential chunk streaming
+// High-speed zero-timeout chunk streaming
 function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -505,109 +499,109 @@ function sendFileStream(file) {
 
   let offset = 0;
   const channel = dataConn.dataChannel || (dataConn._dc);
-  const reader = new FileReader();
-  activeReader = reader;
-
-  function readNextSlice() {
-    if (isTransferAborted) return;
-
-    if (offset >= file.size) {
-      function drainAndFinish() {
-        if (isTransferAborted) return;
-        if (channel && channel.bufferedAmount > 0) {
-          activeDrainTimer = setTimeout(drainAndFinish, 20);
-        } else {
-          try {
-            dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
-          } catch (e) {}
-          renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
-          setTimeout(resetTransferUI, 500);
-        }
-      }
-      drainAndFinish();
-      return;
-    }
-
-    if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
-      channel.onbufferedamountlow = () => {
-        channel.onbufferedamountlow = null;
-        readNextSlice();
-      };
-      return;
-    }
-
-    const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
-    const blobSlice = file.slice(offset, sliceEnd);
-    reader.readAsArrayBuffer(blobSlice);
+  if (channel) {
+    channel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
   }
 
-  reader.onload = function(e) {
-    if (isTransferAborted) return;
+  let isPumping = false;
 
-    const buffer = e.target.result;
+  async function pumpPipeline() {
+    if (isTransferAborted || isPumping) return;
+    isPumping = true;
+
     try {
-      dataConn.send(buffer);
-      offset += buffer.byteLength;
-      bytesSamplePeriod += buffer.byteLength;
-
-      const now = performance.now();
-      const timeDiff = (now - lastProgressSentTime) / 1000;
-
-      if (timeDiff >= 0.1 || offset >= file.size) {
-        const bytesPerSec = bytesSamplePeriod / timeDiff;
-        const speedMB = bytesPerSec / (1024 * 1024);
-        const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-
-        const remainingBytes = Math.max(0, file.size - offset);
-        let etaStr = "ETA: --";
-        if (bytesPerSec > 0 && remainingBytes > 0) {
-          const etaSec = Math.round(remainingBytes / bytesPerSec);
-          etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
+      while (offset < file.size && !isTransferAborted) {
+        if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+          channel.onbufferedamountlow = () => {
+            channel.onbufferedamountlow = null;
+            isPumping = false;
+            pumpPipeline();
+          };
+          return;
         }
 
-        const pct = Math.min(100, Math.floor((offset / file.size) * 100));
+        const sliceEnd = Math.min(offset + CHUNK_SIZE, file.size);
+        const chunkBlob = file.slice(offset, sliceEnd);
+        const currentChunkSize = sliceEnd - offset;
+        offset = sliceEnd;
 
-        progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
-        progressPercent.innerText = `${pct}%`;
-        progressBarFill.style.width = `${pct}%`;
-        progressSpeed.innerText = speedStr;
-        progressETA.innerText = etaStr;
+        const buffer = await chunkBlob.arrayBuffer();
+        if (isTransferAborted) return;
 
-        try {
-          dataConn.send(JSON.stringify({
-            type: "file-progress",
-            transferId: currentTransferId,
-            pct: pct,
-            speed: speedStr
-          }));
-        } catch (err) {}
+        dataConn.send(buffer);
+        bytesSamplePeriod += currentChunkSize;
 
-        bytesSamplePeriod = 0;
-        lastProgressSentTime = now;
+        const now = performance.now();
+        const timeDiff = (now - lastProgressSentTime) / 1000;
+
+        if (timeDiff >= 0.12 || offset >= file.size) {
+          const bytesPerSec = bytesSamplePeriod / timeDiff;
+          const speedMB = bytesPerSec / (1024 * 1024);
+          const speedStr = speedMB >= 1 ? `${speedMB.toFixed(2)} MB/s` : `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+
+          const remainingBytes = Math.max(0, file.size - offset);
+          let etaStr = "ETA: --";
+          if (bytesPerSec > 0 && remainingBytes > 0) {
+            const etaSec = Math.round(remainingBytes / bytesPerSec);
+            etaStr = etaSec >= 60 ? `ETA: ~${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ~${etaSec}s`;
+          }
+
+          const pct = Math.min(100, Math.floor((offset / file.size) * 100));
+
+          progressBytesRatio.innerText = `${formatBytes(offset)} / ${formatBytes(file.size)}`;
+          progressPercent.innerText = `${pct}%`;
+          progressBarFill.style.width = `${pct}%`;
+          progressSpeed.innerText = speedStr;
+          progressETA.innerText = etaStr;
+
+          try {
+            dataConn.send(JSON.stringify({
+              type: "file-progress",
+              transferId: currentTransferId,
+              pct: pct,
+              speed: speedStr
+            }));
+          } catch (err) {}
+
+          bytesSamplePeriod = 0;
+          lastProgressSentTime = now;
+        }
       }
 
-      if (!channel || channel.bufferedAmount <= BUFFER_MAX_THRESHOLD) {
-        readNextSlice();
-      } else {
-        channel.onbufferedamountlow = () => {
-          channel.onbufferedamountlow = null;
-          readNextSlice();
-        };
+      if (offset >= file.size) {
+        function checkPhysicalDrain() {
+          if (isTransferAborted) return;
+          if (channel && channel.bufferedAmount > 0) {
+            activeDrainTimer = setTimeout(checkPhysicalDrain, 15);
+          } else {
+            try {
+              dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
+            } catch (e) {}
+            renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
+            setTimeout(resetTransferUI, 500);
+          }
+        }
+        checkPhysicalDrain();
       }
     } catch (err) {
-      console.error("Transmission error, retrying slice:", err);
-      setTimeout(readNextSlice, 40);
+      console.error("Transmission error:", err);
+      setTimeout(() => {
+        isPumping = false;
+        pumpPipeline();
+      }, 50);
+    } finally {
+      isPumping = false;
     }
-  };
+  }
 
   activeSliceCallback = () => {
     activeSliceCallback = null;
-    readNextSlice();
+    pumpPipeline();
   };
 
   setTimeout(() => {
     if (activeSliceCallback) activeSliceCallback();
-  }, 500);
+  }, 400);
 }
 
 window.triggerFileDownload = function(fileId) {
@@ -915,7 +909,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Background particle animation
+// Canvas particle animation
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 const cursorGlow = document.getElementById('cursorGlow');
