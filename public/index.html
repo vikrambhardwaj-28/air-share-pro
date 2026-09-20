@@ -793,11 +793,11 @@
         </div>
     </div>
 
-    <!-- Receiver Notice Banner -->
+    <!-- Receiver Notice Banner with Live Percent Indicator -->
     <div id="receiverNoticeBanner" class="progress-card" style="display:none; width: 100%; max-width: 920px; align-items:center; justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:10px; overflow:hidden;">
             <span class="status-dot"></span>
-            <span style="font-size:0.84rem; color:var(--text-primary); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Receiving <strong id="receivingNoticeName" style="color:var(--apple-cyan);">file</strong>...</span>
+            <span id="receivingNoticeFullText" style="font-size:0.84rem; color:var(--text-primary); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Receiving file...</span>
         </div>
         <span style="font-size:0.68rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:700; flex-shrink:0;">Incoming</span>
     </div>
@@ -920,7 +920,7 @@
                 <div class="step-box">
                     <div class="step-num">03</div>
                     <div class="step-title">Zero-Buffer Turbo Stream</div>
-                    <div class="step-desc">Files are sliced into 64KB binary chunks with adaptive backpressure flow control for high speed even across cellular CGNAT networks.</div>
+                    <div class="step-desc">Files are sliced into 16KB binary chunks with adaptive flow control and TURN relay support for uninterrupted cellular cross-network speed.</div>
                 </div>
             </div>
         </div>
@@ -980,7 +980,7 @@
     <footer>
         <div class="footer-telemetry">
             <div class="tele-item"><i class="fa-solid fa-server"></i><span>Edge: <strong>Render Cloud Engine</strong></span></div>
-            <div class="tele-item"><i class="fa-solid fa-network-wired"></i><span>Engine: <strong>WebRTC Direct P2P + TURN Relay</strong></span></div>
+            <div class="tele-item"><i class="fa-solid fa-network-wired"></i><span>Engine: <strong>WebRTC Direct P2P + OpenRelay TURN</strong></span></div>
             <div class="tele-item"><i class="fa-solid fa-lock"></i><span>RAM Load: <strong>0 Bytes (Zero-Buffer)</strong></span></div>
             <div class="tele-item"><i class="fa-solid fa-wave-square"></i><span>Acoustic: <strong>FSK Clock-Interlocked</strong></span></div>
         </div>
@@ -1021,9 +1021,9 @@
         const DIGIT_DURATION = 0.16;
         const SYNC_DURATION = 0.10;
 
-        // Optimized Chunk Spec & Mobile Backpressure Threshold
-        const CHUNK_SIZE = 64 * 1024;
-        const BUFFER_MAX_THRESHOLD = 1024 * 1024; // 1MB buffer limit to prevent mobile packet drops
+        // 16KB is the most resilient MTU-safe chunk size for cellular networks (Airtel <-> Jio)
+        const CHUNK_SIZE = 16 * 1024;
+        const BUFFER_MAX_THRESHOLD = 512 * 1024; // 512KB safe ceiling to avoid radio buffer-bloat
 
         let isTransferAborted = false;
         let currentTransferId = null;
@@ -1062,7 +1062,7 @@
         const cancelTransferBtn = document.getElementById("cancelTransferBtn");
 
         const receiverNoticeBanner = document.getElementById("receiverNoticeBanner");
-        const receivingNoticeName = document.getElementById("receivingNoticeName");
+        const receivingNoticeFullText = document.getElementById("receivingNoticeFullText");
         const sessionFilesList = document.getElementById("sessionFilesList");
 
         const clipboardArea = document.getElementById("clipboardArea");
@@ -1076,7 +1076,7 @@
         const feedbackBtnText = document.getElementById("feedbackBtnText");
         const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-        // Global STUN + Free Metered TURN Relay for Cross-Carrier (Airtel <-> Jio) CGNAT Traversal
+        // High-Priority Global STUN + Free OpenRelay TURN servers for NAT traversal
         const GLOBAL_ICE_SERVERS = [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun1.l.google.com:19302" },
@@ -1181,8 +1181,7 @@
             if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
             statusLabel.innerText = `Connecting...`;
             const conn = peer.connect(`airshare-${targetPin}`, { 
-                reliable: true,
-                serialization: "binary"
+                reliable: true
             });
             setupDataConnection(conn);
         }
@@ -1194,6 +1193,11 @@
                 stopListeningAudio();
                 statusLabel.innerText = "Connected with Peer";
                 triggerQuantumWarp();
+
+                // Set threshold for responsive backpressure
+                if (dataConn.dataChannel) {
+                    dataConn.dataChannel.bufferedAmountLowThreshold = 64 * 1024;
+                }
 
                 if (pairingSection) {
                     pairingSection.classList.add("conduit-hidden");
@@ -1224,7 +1228,7 @@
                             isTransferAborted = false;
 
                             senderProgressCard.style.display = "none";
-                            receivingNoticeName.innerText = msg.name;
+                            receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${msg.name}</strong>... <span style="color:var(--text-secondary);">(0%)</span>`;
                             receiverNoticeBanner.style.display = "flex";
                         }
                         else if (msg.type === "file-abort") {
@@ -1235,7 +1239,7 @@
                             const item = document.getElementById(`file-item-${msg.fileId}`);
                             if (item) item.remove();
                             fileBlobsMap.delete(msg.fileId);
-                            checkEmptyHistory();
+                            updateHistoryEmptyState();
                         }
                         else if (msg.type === "peer-disconnect") {
                             handleDisconnection(false);
@@ -1262,21 +1266,27 @@
                             }
                         }
                     } catch (e) {
-                        console.error(e);
+                        console.error("Control packet error:", e);
                     }
                 } else {
                     if (!incomingFileMeta || isTransferAborted) return;
+
+                    let chunkBuffer = null;
                     if (data instanceof ArrayBuffer) {
-                        incomingFileChunks.push(data);
-                        incomingBytesReceived += data.byteLength;
+                        chunkBuffer = data;
                     } else if (ArrayBuffer.isView(data)) {
-                        incomingFileChunks.push(data.buffer);
-                        incomingBytesReceived += data.byteLength;
-                    } else if (data instanceof Blob) {
-                        data.arrayBuffer().then((buf) => {
-                            incomingFileChunks.push(buf);
-                            incomingBytesReceived += buf.byteLength;
-                        });
+                        chunkBuffer = data.buffer;
+                    }
+
+                    if (chunkBuffer) {
+                        incomingFileChunks.push(chunkBuffer);
+                        incomingBytesReceived += chunkBuffer.byteLength;
+
+                        // Update incoming percentage on receiver
+                        if (incomingFileMeta.size > 0) {
+                            const pct = Math.min(100, Math.floor((incomingBytesReceived / incomingFileMeta.size) * 100));
+                            receivingNoticeFullText.innerHTML = `Receiving <strong style="color:var(--apple-cyan);">${incomingFileMeta.name}</strong>... <span style="color:var(--apple-cyan); font-weight:700;">(${pct}%)</span>`;
+                        }
                     }
                 }
             });
@@ -1419,20 +1429,21 @@
             }));
 
             let offset = 0;
-            const channel = dataConn.dataChannel;
+            const channel = dataConn.dataChannel || (dataConn._dc);
 
             function streamNextChunk() {
                 if (isTransferAborted) return;
 
                 if (offset >= file.size) {
+                    // Send finish message only when all bytes are sent
                     dataConn.send(JSON.stringify({ type: "file-end", transferId: currentTransferId }));
                     renderFileInHistory(file.name, file.size, currentTransferId, true, fileTime);
                     setTimeout(resetTransferUI, 700);
                     return;
                 }
 
-                // Adaptive backpressure control to prevent packet loss on mobile cellular networks
-                if (channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
+                // Check WebRTC internal backpressure to prevent packet drops
+                if (channel && channel.bufferedAmount > BUFFER_MAX_THRESHOLD) {
                     channel.onbufferedamountlow = () => {
                         channel.onbufferedamountlow = null;
                         streamNextChunk();
@@ -1476,8 +1487,9 @@
                             lastProgressSentTime = now;
                         }
 
-                        if (channel.bufferedAmount <= BUFFER_MAX_THRESHOLD) {
-                            streamNextChunk();
+                        // Gentle cellular pacing
+                        if (!channel || channel.bufferedAmount <= BUFFER_MAX_THRESHOLD) {
+                            setTimeout(streamNextChunk, 4);
                         } else {
                             channel.onbufferedamountlow = () => {
                                 channel.onbufferedamountlow = null;
@@ -1485,13 +1497,14 @@
                             };
                         }
                     } catch (err) {
-                        console.error("Transmission error:", err);
-                        setTimeout(streamNextChunk, 40);
+                        console.error("Cellular transmission retry:", err);
+                        setTimeout(streamNextChunk, 50);
                     }
                 });
             }
 
-            streamNextChunk();
+            // Start streaming
+            setTimeout(streamNextChunk, 30);
         }
 
         window.triggerFileDownload = function(fileId) {
@@ -1516,8 +1529,6 @@
         };
 
         function renderFileInHistory(name, size, fileId, isSender, timeStr) {
-            checkEmptyHistory();
-
             const item = document.createElement("div");
             item.id = `file-item-${fileId}`;
             item.className = "history-item";
@@ -1540,6 +1551,7 @@
             `;
 
             sessionFilesList.prepend(item);
+            updateHistoryEmptyState();
         }
 
         window.deleteFile = function(fileId) {
@@ -1547,7 +1559,7 @@
                 const item = document.getElementById(`file-item-${fileId}`);
                 if (item) item.remove();
                 fileBlobsMap.delete(fileId);
-                checkEmptyHistory();
+                updateHistoryEmptyState();
 
                 if (dataConn && dataConn.open) {
                     dataConn.send(JSON.stringify({ type: "file-delete", fileId: fileId }));
@@ -1555,11 +1567,13 @@
             }
         };
 
-        function checkEmptyHistory() {
-            if (!sessionFilesList.querySelector(".history-item")) {
+        function updateHistoryEmptyState() {
+            const emptyMsg = sessionFilesList.querySelector("p");
+            const hasItems = sessionFilesList.querySelector(".history-item");
+            if (hasItems && emptyMsg) {
+                emptyMsg.remove();
+            } else if (!hasItems && !emptyMsg) {
                 sessionFilesList.innerHTML = `<p style="font-size:0.78rem; color:var(--text-tertiary); font-style:italic;">No files transferred yet.</p>`;
-            } else if (sessionFilesList.querySelector("p")) {
-                sessionFilesList.querySelector("p").remove();
             }
         }
 
