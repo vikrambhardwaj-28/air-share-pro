@@ -554,12 +554,8 @@
         }
         .clipboard-box textarea:focus { border-color: var(--apple-cyan); }
 
-        #pairingSection {
-            display: grid;
-        }
-        #pairingSection.conduit-hidden {
-            display: none !important;
-        }
+        #pairingSection { display: grid; }
+        #pairingSection.conduit-hidden { display: none !important; }
 
         #transferSection {
             position: relative;
@@ -605,9 +601,7 @@
             max-width: 90%;
             justify-content: center;
         }
-        #transferSection.conduit-unblurred .transfer-lock-banner {
-            display: none !important;
-        }
+        #transferSection.conduit-unblurred .transfer-lock-banner { display: none !important; }
 
         .how-it-works-grid {
             display: grid;
@@ -627,9 +621,7 @@
             -webkit-backdrop-filter: blur(20px);
             transition: transform 0.25s ease;
         }
-        .step-box:hover {
-            transform: translateY(-2px);
-        }
+        .step-box:hover { transform: translateY(-2px); }
         .step-num {
             width: 28px; height: 28px; border-radius: 50%;
             background: color-mix(in srgb, var(--module-accent) 20%, transparent);
@@ -638,12 +630,8 @@
             font-size: 0.78rem; font-weight: 800; font-family: 'JetBrains Mono', monospace;
             display: flex; align-items: center; justify-content: center;
         }
-        .step-title {
-            font-size: 0.95rem; font-weight: 700; color: var(--text-primary);
-        }
-        .step-desc {
-            font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;
-        }
+        .step-title { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
+        .step-desc { font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5; }
 
         .feedback-card {
             background: var(--panel);
@@ -676,10 +664,7 @@
             border-color: var(--module-accent);
             box-shadow: 0 0 16px color-mix(in srgb, var(--module-accent) 25%, transparent);
         }
-        .feedback-textarea {
-            min-height: 110px;
-            resize: vertical;
-        }
+        .feedback-textarea { min-height: 110px; resize: vertical; }
 
         footer {
             border-top: 1px solid var(--border); padding-top: 24px; display: flex; flex-direction: column; gap: 16px;
@@ -806,7 +791,6 @@
 
         <!-- Pairing Section -->
         <div id="pairingSection" class="main-container">
-
             <div class="card">
                 <div class="card-title-row">
                     <div class="card-icon-chip"><i class="fa-solid fa-tower-broadcast"></i></div>
@@ -846,12 +830,10 @@
                     <i class="fa-solid fa-arrow-right"></i> Pair Devices
                 </button>
             </div>
-
         </div>
 
         <!-- Transfer Section (P2P Stream Area) -->
         <div id="transferSection" class="main-container">
-
             <div class="transfer-lock-banner">
                 <i class="fa-solid fa-lock"></i>
                 <span>Pair devices above to unlock sharing</span>
@@ -895,7 +877,6 @@
                     </button>
                 </div>
             </div>
-
         </div>
 
         <!-- Architecture Description -->
@@ -973,10 +954,9 @@
                 <span>Thank you! Your feedback has been forwarded to <strong>vikram.2872006@gmail.com</strong>.</span>
             </div>
         </div>
-
     </main>
 
-    <!-- Footer with Telemetry -->
+    <!-- Footer -->
     <footer>
         <div class="footer-telemetry">
             <div class="tele-item"><i class="fa-solid fa-server"></i><span>Edge: <strong>Render Cloud Engine</strong></span></div>
@@ -999,7 +979,7 @@
         </div>
     </footer>
 
-    <!-- Client Script -->
+    <!-- EMBEDDED HIGH-SPEED ENGINE SCRIPT -->
     <script>
         sessionStorage.clear();
         if (window.location.hash) {
@@ -1014,7 +994,7 @@
         let listenStream = null;
         let listenAnimId = null;
 
-        // Anti-Echo Flag for Clipboard
+        // Clipboard echo-guard to avoid freeze loop
         let isRemoteTyping = false;
 
         const START_TONE = 1450;
@@ -1024,9 +1004,9 @@
         const DIGIT_DURATION = 0.16;
         const SYNC_DURATION = 0.10;
 
-        // 64KB Chunk Size with responsive backpressure
+        // Optimal streaming specs (64KB chunks with 2MB backpressure)
         const CHUNK_SIZE = 64 * 1024;
-        const BUFFER_MAX_THRESHOLD = 1024 * 1024; // 1MB buffer ceiling
+        const BUFFER_MAX_THRESHOLD = 2 * 1024 * 1024;
 
         let isTransferAborted = false;
         let currentTransferId = null;
@@ -1118,10 +1098,10 @@
         function getCurrentTimeStr() {
             const now = new Date();
             let hours = now.getHours();
-            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const minutes = (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
             const ampm = hours >= 12 ? 'PM' : 'AM';
             hours = hours % 12 || 12;
-            return `${hours}:${minutes} ${ampm}`;
+            return hours + ":" + minutes + " " + ampm;
         }
 
         function triggerQuantumWarp() {
@@ -1165,6 +1145,7 @@
                 try { peer.destroy(); } catch (e) {}
             }
 
+            // Standard Room ID: airshare-XXXXXX
             peer = new Peer(`airshare-${myPin}`, {
                 host: window.location.hostname,
                 port: window.location.port || (window.location.protocol === "https:" ? 443 : 80),
@@ -1198,6 +1179,7 @@
         function connectToPeer(targetPin) {
             if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
             statusLabel.innerText = `Connecting...`;
+
             // Serialization 'none' ensures raw WebRTC DataChannel without BinaryPack bugs
             const conn = peer.connect(`airshare-${targetPin}`, { 
                 reliable: true,
@@ -1218,15 +1200,10 @@
                     dataConn.dataChannel.bufferedAmountLowThreshold = 256 * 1024;
                 }
 
-                if (pairingSection) {
-                    pairingSection.classList.add("conduit-hidden");
-                }
-
-                if (transferSection) {
-                    transferSection.classList.add("conduit-unblurred");
-                }
-
+                if (pairingSection) pairingSection.classList.add("conduit-hidden");
+                if (transferSection) transferSection.classList.add("conduit-unblurred");
                 if (disconnectBtn) disconnectBtn.style.display = "inline-flex";
+
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             });
 
@@ -1262,7 +1239,6 @@
                             } catch (e) {}
                         }
                         else if (msg.type === "file-start-ack") {
-                            // Receiver confirmed ready - begin pumping chunks
                             if (activeSliceCallback) {
                                 activeSliceCallback();
                             }

@@ -8,9 +8,17 @@ const server = http.createServer(app);
 
 app.disable('x-powered-by');
 
+// Compression & Security headers
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
+
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
-  res.send('User-agent: *\nAllow: /\n');
+  res.send('User-agent: *\nAllow: /\nSitemap: https://airshare-pro.markiv.site/sitemap.xml\n');
 });
 
 const staticOptions = {
@@ -21,43 +29,31 @@ const staticOptions = {
 
 app.use(express.static(path.join(__dirname, 'public'), staticOptions));
 
-const activePeers = new Set();
-const peerRoomLookup = new Map();
-
+// High-performance PeerServer configuration with alive ping
 const peerServer = ExpressPeerServer(server, {
   debug: false,
   path: '/',
-  allow_discovery: false
+  allow_discovery: true,
+  alive_timeout: 60000,
+  key: 'peerjs',
+  concurrent_limit: 5000
 });
 
 app.use('/peerjs', peerServer);
 
+const activePeers = new Set();
+
 peerServer.on('connection', (client) => {
   const id = client.getId();
   activePeers.add(id);
-
-  const prefix = id.split('-')[0];
-  if (!peerRoomLookup.has(prefix)) {
-    peerRoomLookup.set(prefix, new Set());
-  }
-  peerRoomLookup.get(prefix).add(id);
 });
 
 peerServer.on('disconnect', (client) => {
   const id = client.getId();
   activePeers.delete(id);
-
-  const prefix = id.split('-')[0];
-  const roomSet = peerRoomLookup.get(prefix);
-  if (roomSet) {
-    roomSet.delete(id);
-    if (roomSet.size === 0) {
-      peerRoomLookup.delete(prefix);
-    }
-  }
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running at: http://localhost:${PORT}`);
+  console.log(`Air Share Pro Conduit Active at: http://localhost:${PORT}`);
 });
