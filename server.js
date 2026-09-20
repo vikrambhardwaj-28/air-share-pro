@@ -13,35 +13,20 @@ const server = http.createServer(app);
 app.enable('trust proxy');
 app.disable('x-powered-by');
 
-// CORS & Headers
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
-
-// Sitemap & Robots
+// Health Check & Robots
+app.get('/ping', (req, res) => res.status(200).send('pong'));
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
-  res.send('User-agent: *\nAllow: /\nSitemap: https://airshare-pro.markiv.site/sitemap.xml\n');
+  res.send('User-agent: *\nAllow: /\n');
 });
 
-// Render Keep-Alive / Health Check
-app.get('/ping', (req, res) => {
-  res.status(200).send('pong');
-});
-
-// Static assets
+// Static files serve
 app.use(express.static(path.join(__dirname, 'public'), {
-  maxAge: '1d',
-  etag: true,
-  lastModified: true
+  maxAge: '1d'
 }));
 
 // ==========================================
-// 6-DIGIT PIN ROOM WEBSOCKET SIGNALLING
+// PEHLE CODE KA EXACT FAST ROOM ENGINE
 // ==========================================
 const rooms = new Map();
 const wss = new WebSocketServer({ server, path: '/signal' });
@@ -66,28 +51,22 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'join') {
       const pin = String(msg.pin || '');
-      if (!/^\d{6}$/.test(pin)) {
-        return send(ws, { type: 'error', message: 'Valid 6-digit PIN required.' });
-      }
-
+      if (!/^\d{6}$/.test(pin)) return send(ws, { type: 'error', message: 'Valid 6-digit PIN daalein.' });
+      
       leave(ws);
-
       const clients = rooms.get(pin) || new Set();
-      if (clients.size >= 2) {
-        return send(ws, { type: 'error', message: 'Room is already full.' });
-      }
+      if (clients.size >= 2) return send(ws, { type: 'error', message: 'Is PIN par room already full hai.' });
 
       rooms.set(pin, clients);
       ws.room = pin;
       clients.add(ws);
 
-      const isInitiator = clients.size === 1;
-      send(ws, { type: 'joined', initiator: isInitiator, pin });
+      // Pehla join karne wala initiator hoga
+      send(ws, { type: 'joined', initiator: clients.size === 1 });
 
+      // Jaise hi doosra aaya, bina kisi delay ke turant peer-ready trigger hoga
       if (clients.size === 2) {
-        for (const peer of clients) {
-          send(peer, { type: 'peer-ready' });
-        }
+        for (const peer of clients) send(peer, { type: 'peer-ready' });
       }
       return;
     }
@@ -104,5 +83,5 @@ wss.on('connection', (ws) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Air Share Pro Conduit running on port ${PORT}`);
+  console.log(`Air Share Pro running at http://localhost:${PORT}`);
 });

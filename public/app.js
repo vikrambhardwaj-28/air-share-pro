@@ -13,7 +13,6 @@ let audioCtx = null;
 let isListening = false;
 let listenStream = null;
 let listenAnimId = null;
-
 let isRemoteTyping = false;
 
 const START_TONE = 1450;
@@ -23,9 +22,7 @@ const FREQ_STEP = 150;
 const DIGIT_DURATION = 0.12;
 const SYNC_DURATION = 0.08;
 
-// ==========================================
-// MAX SPEED TURBO PIPELINE SPECS
-// ==========================================
+// FAST STREAM CONFIG
 const CHUNK_SIZE = 256 * 1024;
 const BUFFER_MAX_THRESHOLD = 8 * 1024 * 1024;
 const BUFFER_LOW_THRESHOLD = 1024 * 1024;
@@ -36,9 +33,7 @@ let transferStartTime = 0;
 let lastProgressSentTime = 0;
 let bytesSamplePeriod = 0;
 let activeDrainTimer = null;
-let isPumpingActive = false;
 
-// Receiver state
 let incomingFileMeta = null;
 let incomingFileChunks = [];
 let incomingBytesReceived = 0;
@@ -86,26 +81,15 @@ const feedbackSubmitBtn = document.getElementById("feedbackSubmitBtn");
 const feedbackBtnText = document.getElementById("feedbackBtnText");
 const feedbackSuccessBanner = document.getElementById("feedbackSuccessBanner");
 
-// STUN + OpenRelay TURN for strict symmetric NATs
+// Fast & Light ICE Servers (No slow scanning)
 const rtcConfig = {
   iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
     {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject"
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
     }
   ]
 };
@@ -143,68 +127,84 @@ function kickReceiverWatchdog() {
   clearTimeout(receiverWatchdogTimer);
   receiverWatchdogTimer = setTimeout(() => {
     if (incomingFileMeta) {
-      console.warn("Watchdog timeout triggered. Resetting receiver state.");
+      console.warn("Watchdog reset.");
       resetTransferUI();
     }
   }, 7000);
 }
 
 // ==========================================
-// WEBSOCKET SIGNALLING & WEBRTC ENGINE
+// EXACT PEHLE CODE WALI WEBSOCKET ROOM LOGIC
 // ==========================================
-function sendSignal(payload) {
+function signal(message) {
   if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(payload));
+    socket.send(JSON.stringify(message));
   }
 }
 
-function initConduit() {
-  myPin = generatePIN();
-  pinDisplay.innerText = myPin;
-
-  qrcodeContainer.innerHTML = "";
-  const joinUrl = `${window.location.origin}${window.location.pathname}#pin=${myPin}`;
-  new QRCode(qrcodeContainer, {
-    text: joinUrl,
-    width: 120,
-    height: 120,
-    colorDark: "#0f172a",
-    colorLight: "#ffffff",
-    correctLevel: QRCode.CorrectLevel.M
-  });
-
-  setupSignallingSocket(myPin);
-}
-
-function setupSignallingSocket(pinToJoin) {
+function joinRoom(pin) {
+  myPin = pin;
+  statusLabel.innerText = "Connecting to room…";
+  
   if (socket) {
-    try { socket.close(); } catch(e) {}
+    try { socket.close(); } catch (e) {}
   }
 
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   socket = new WebSocket(`${scheme}://${location.host}/signal`);
 
   socket.onopen = () => {
-    sendSignal({ type: 'join', pin: pinToJoin });
+    signal({ type: 'join', pin });
   };
 
   socket.onmessage = async ({ data }) => {
     try {
       const msg = JSON.parse(data);
-      handleSignallingMessage(msg);
-    } catch (e) {
-      console.error(e);
-    }
+      handleSignal(msg);
+    } catch (e) {}
   };
 
   socket.onclose = () => {
     if (transferSection && transferSection.classList.contains('conduit-unblurred')) {
-      statusLabel.innerText = "Signalling reconnecting…";
+      statusLabel.innerText = "Signalling disconnected";
     }
   };
 }
 
-async function handleSignallingMessage(msg) {
+function makePeer() {
+  if (pc) return;
+  pc = new RTCPeerConnection(rtcConfig);
+
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) signal({ type: 'candidate', candidate });
+  };
+
+  if (isInitiator) {
+    const dc = pc.createDataChannel("airshare-data", { ordered: true });
+    setupDataChannel(dc);
+  } else {
+    pc.ondatachannel = (e) => {
+      setupDataChannel(e.channel);
+    };
+  }
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') {
+      statusLabel.innerText = "Connected with Peer";
+      statusDot.style.background = "var(--success)";
+      triggerQuantumWarp();
+    }
+  };
+}
+
+async function offer() {
+  makePeer();
+  const off = await pc.createOffer();
+  await pc.setLocalDescription(off);
+  signal({ type: 'offer', sdp: pc.localDescription });
+}
+
+async function handleSignal(msg) {
   if (msg.type === 'error') {
     alert(msg.message);
     connectPinBtn.disabled = false;
@@ -214,43 +214,36 @@ async function handleSignallingMessage(msg) {
 
   if (msg.type === 'joined') {
     isInitiator = msg.initiator;
-    if (isInitiator) {
-      statusLabel.innerText = "Waiting for peer…";
-    } else {
-      statusLabel.innerText = "Room joined, connecting…";
-    }
+    statusLabel.innerText = isInitiator ? "Waiting for peer…" : "Peer found, syncing…";
     return;
   }
 
   if (msg.type === 'peer-ready') {
-    statusLabel.innerText = "Peer found! Connecting...";
-    createPeerConnection();
-    if (isInitiator) {
-      createAndSendOffer();
+    statusLabel.innerText = "Peer joined! Creating tunnel…";
+    if (isInitiator && !pc) {
+      await offer();
     }
     return;
   }
 
   if (msg.type === 'offer') {
-    createPeerConnection();
+    makePeer();
     await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    sendSignal({ type: 'answer', sdp: pc.localDescription });
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    signal({ type: 'answer', sdp: pc.localDescription });
     return;
   }
 
-  if (msg.type === 'answer') {
-    if (pc) await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+  if (msg.type === 'answer' && pc) {
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
     return;
   }
 
-  if (msg.type === 'candidate') {
-    if (pc && msg.candidate) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-      } catch (e) {}
-    }
+  if (msg.type === 'candidate' && pc) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+    } catch (e) {}
     return;
   }
 
@@ -259,42 +252,7 @@ async function handleSignallingMessage(msg) {
   }
 }
 
-function createPeerConnection() {
-  if (pc) return;
-
-  pc = new RTCPeerConnection(rtcConfig);
-
-  pc.onicecandidate = ({ candidate }) => {
-    if (candidate) sendSignal({ type: 'candidate', candidate });
-  };
-
-  if (isInitiator) {
-    const dc = pc.createDataChannel("airshare-pipe", { ordered: true });
-    attachDataChannelHandlers(dc);
-  } else {
-    pc.ondatachannel = (event) => {
-      attachDataChannelHandlers(event.channel);
-    };
-  }
-
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'connected') {
-      statusLabel.innerText = "Connected with Peer";
-      statusDot.style.background = "var(--success)";
-      triggerQuantumWarp();
-    } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-      statusLabel.innerText = "Reconnecting...";
-    }
-  };
-}
-
-async function createAndSendOffer() {
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  sendSignal({ type: 'offer', sdp: pc.localDescription });
-}
-
-function attachDataChannelHandlers(dc) {
+function setupDataChannel(dc) {
   dataChannel = dc;
   dataChannel.binaryType = "arraybuffer";
   dataChannel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
@@ -315,7 +273,6 @@ function attachDataChannelHandlers(dc) {
   dataChannel.onmessage = (event) => {
     const data = event.data;
 
-    // 1. JSON Strings
     if (typeof data === "string") {
       try {
         const msg = JSON.parse(data);
@@ -324,7 +281,7 @@ function attachDataChannelHandlers(dc) {
           isRemoteTyping = true;
           clipboardArea.value = msg.text;
           setTimeout(() => { isRemoteTyping = false; }, 35);
-        }
+        } 
         else if (msg.type === "file-start") {
           incomingFileMeta = msg;
           incomingFileChunks = [];
@@ -378,11 +335,9 @@ function attachDataChannelHandlers(dc) {
           }
         }
       } catch (e) {
-        console.error("Control packet error:", e);
+        console.error(e);
       }
-    }
-    // 2. Binary Chunks
-    else {
+    } else {
       if (!incomingFileMeta || isTransferAborted) return;
       kickReceiverWatchdog();
 
@@ -405,18 +360,39 @@ function attachDataChannelHandlers(dc) {
   };
 }
 
+// App start
+function initConduit() {
+  myPin = generatePIN();
+  pinDisplay.innerText = myPin;
+
+  qrcodeContainer.innerHTML = "";
+  const joinUrl = `${window.location.origin}${window.location.pathname}#pin=${myPin}`;
+  new QRCode(qrcodeContainer, {
+    text: joinUrl,
+    width: 120,
+    height: 120,
+    colorDark: "#0f172a",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.M
+  });
+
+  // Host joins the generated PIN room immediately
+  joinRoom(myPin);
+}
+
 function connectToPeer(targetPin) {
   if (!targetPin || targetPin.length !== 6) return alert("Please enter a valid 6-digit PIN.");
   
-  statusLabel.innerText = `Connecting to ${targetPin}...`;
+  statusLabel.innerText = `Joining PIN ${targetPin}...`;
   connectPinBtn.disabled = true;
 
   if (pc) {
-    try { pc.close(); } catch(e) {}
+    try { pc.close(); } catch (e) {}
     pc = null;
   }
 
-  setupSignallingSocket(targetPin);
+  // Client directly joins target PIN room
+  joinRoom(targetPin);
 }
 
 window.disconnectConduit = function() {
@@ -426,18 +402,18 @@ window.disconnectConduit = function() {
         dataChannel.send(JSON.stringify({ type: "peer-disconnect" }));
       } catch (e) {}
     }
-    sendSignal({ type: 'hangup' });
+    signal({ type: 'hangup' });
     handleDisconnection(true);
   }
 };
 
 function handleDisconnection(isLocalTrigger) {
   if (dataChannel) {
-    try { dataChannel.close(); } catch(e) {}
+    try { dataChannel.close(); } catch (e) {}
     dataChannel = null;
   }
   if (pc) {
-    try { pc.close(); } catch(e) {}
+    try { pc.close(); } catch (e) {}
     pc = null;
   }
 
@@ -467,7 +443,7 @@ function handleDisconnection(isLocalTrigger) {
     correctLevel: QRCode.CorrectLevel.M
   });
 
-  setupSignallingSocket(myPin);
+  joinRoom(myPin);
 
   if (!isLocalTrigger) {
     alert("The remote peer has disconnected.");
@@ -477,7 +453,6 @@ function handleDisconnection(isLocalTrigger) {
 function resetTransferUI() {
   clearTimeout(receiverWatchdogTimer);
   clearTimeout(activeDrainTimer);
-  isPumpingActive = false;
 
   senderProgressCard.style.display = "none";
   receiverNoticeBanner.style.display = "none";
@@ -506,7 +481,7 @@ pasteDeviceBtn.addEventListener("click", async () => {
       dataChannel.send(JSON.stringify({ type: "clipboard", text }));
     }
   } catch (err) {
-    alert("Clipboard read permission is required to paste.");
+    alert("Clipboard permission required.");
   }
 });
 
@@ -533,7 +508,7 @@ cancelTransferBtn.addEventListener("click", () => {
   resetTransferUI();
 });
 
-// High-Throughput Turbo Slicing
+// TURBO FILE STREAM
 function sendFileStream(file) {
   isTransferAborted = false;
   currentTransferId = "file-" + Date.now();
@@ -544,7 +519,7 @@ function sendFileStream(file) {
   progressBytesRatio.innerText = `0 B / ${formatBytes(file.size)}`;
   progressPercent.innerText = "0%";
   progressBarFill.style.width = "0%";
-  progressSpeed.innerText = "Turbo Starting...";
+  progressSpeed.innerText = "Starting...";
   progressETA.innerText = "ETA: --";
 
   transferStartTime = performance.now();
@@ -563,7 +538,7 @@ function sendFileStream(file) {
       time: fileTime
     }));
   } catch (e) {
-    alert("Connection interrupted. Please reconnect.");
+    alert("Connection lost.");
     resetTransferUI();
     return;
   }
@@ -650,7 +625,6 @@ function sendFileStream(file) {
         checkPhysicalDrain();
       }
     } catch (err) {
-      console.error("Turbo stream error:", err);
       setTimeout(() => {
         isPumping = false;
         pumpPipeline();
@@ -664,7 +638,7 @@ function sendFileStream(file) {
 }
 
 window.triggerFileDownload = function(fileId) {
-  const item = fileBloBlobsMap().get(fileId);
+  const item = fileBlobsMap.get(fileId);
   if (!item || !item.blob) return;
 
   const { blob, name } = item;
@@ -683,8 +657,6 @@ window.triggerFileDownload = function(fileId) {
     window.URL.revokeObjectURL(blobUrl);
   }, 12000);
 };
-
-function fileBloBlobsMap() { return fileBlobsMap; }
 
 function renderFileInHistory(name, size, fileId, isSender, timeStr) {
   const item = document.createElement("div");
@@ -735,7 +707,7 @@ function updateHistoryEmptyState() {
   }
 }
 
-// Acoustic FSK Sound Engine
+// Acoustic Sound Pairing (FSK)
 function getAudioContext() {
   if (!audioCtx) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -824,7 +796,6 @@ listenSoundBtn.addEventListener("click", async () => {
       if (!isListening) return;
 
       analyser.getByteFrequencyData(dataArray);
-
       visualizerCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
       visualizerCtx.fillStyle = "#38bdf8";
 
@@ -899,7 +870,7 @@ listenSoundBtn.addEventListener("click", async () => {
 
     detectLoop();
   } catch (err) {
-    alert("Microphone permission is required for sound pairing.");
+    alert("Microphone permission required.");
     stopListeningAudio();
   }
 });
@@ -947,10 +918,10 @@ feedbackForm.addEventListener("submit", async (e) => {
       method: "POST",
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
       body: JSON.stringify({
-        name: name,
-        email: email,
-        category: category,
-        message: message,
+        name,
+        email,
+        category,
+        message,
         developer_email: "vikram.2872006@gmail.com",
         conduit_pin: myPin || "N/A",
         timestamp: new Date().toISOString()
@@ -979,7 +950,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Particles and theme
+// Canvas Background Animations
 const bgCanvas = document.getElementById('bgCanvas');
 const bgCtx = bgCanvas.getContext('2d');
 const cursorGlow = document.getElementById('cursorGlow');
